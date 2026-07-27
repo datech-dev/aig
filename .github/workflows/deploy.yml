@@ -16,7 +16,7 @@ jobs:
         key: ${{ secrets.VPS_SSH_KEY }}
         password: ${{ secrets.VPS_PASSWORD }}
         script: |
-          cd /var/www/karin-ai
+          cd /var/www/aig
           git pull origin main
           pip3 install -r requirements.txt
           sudo systemctl restart karin-bot

@@ -5,11 +5,11 @@ After=network.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/var/www/karin-ai
+WorkingDirectory=/var/www/aig
 ExecStart=/usr/bin/python3 bot.py
 Restart=always
 RestartSec=5
-EnvironmentFile=/var/www/karin-ai/.env
+EnvironmentFile=-/var/www/aig/.env
 
 [Install]
 WantedBy=multi-user.target
