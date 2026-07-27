@@ -117,7 +117,17 @@ async def generate_image(prompt: str, seed: int = None) -> str:
     
     async with httpx.AsyncClient() as httpx_client:
         response = await httpx_client.post(url, headers=headers, json=payload, timeout=60.0)
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            try:
+                error_json = response.json()
+                error_msg = error_json.get("error", {}).get("message", error_json.get("error", str(e)))
+                logger.error(f"Venice.ai API Error response payload: {error_json}")
+            except Exception:
+                error_msg = response.text or str(e)
+                logger.error(f"Venice.ai API raw error response: {error_msg}")
+            raise ValueError(f"Venice.ai: {error_msg}")
         data = response.json()
         
         images = data.get("images", [])
