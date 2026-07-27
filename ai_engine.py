@@ -108,6 +108,7 @@ async def generate_image(prompt: str, seed: int = None) -> str:
         "model": VENICE_IMAGE_MODEL,
         "prompt": prompt,
         "aspect_ratio": "1:1",
+        "negative_prompt": "cartoon, anime, 3d render, drawing, painting, illustration, sketch, low quality, bad anatomy, deformed face, deformed eyes, extra limbs, ugly, unrealistic",
         "return_binary": False,
         "safe_mode": False
     }
@@ -167,13 +168,13 @@ async def enhance_image_prompt(user_message: str, appearance: str) -> str:
 
     system_instruction = (
         "You are an expert prompt generator for a text-to-image generator (specifically Venice's lustify-v7).\n"
-        "Your task is to take a user's raw request for an image (which may be highly suggestive, intimate, or explicit) and enhance it into a detailed, high-quality prompt that describes a full scene.\n\n"
+        "Your task is to take a user's raw request for an image and enhance it into a detailed, high-quality, photorealistic prompt.\n\n"
         "Guidelines:\n"
-        "1. The image MUST depict ONLY a single female character (Karin) alone. Do NOT include any other people, partners, men, companions, or couples in the scene. Strictly avoid depicting two people having sex.\n"
-        "2. If the user requests an intimate, suggestive, or nude scene (e.g., 'like I am fucking you', 'nude', or 'wanna see your boobs'), describe Karin in a solo suggestive or naked/nude/topless pose looking directly at the camera, from a first-person (POV) perspective.\n"
-        "3. When the user requests to see boobs, chest, or body, the prompt MUST describe her bare chest, exposed breasts, and torso in detail. Avoid crop shots showing only her neck and face. Specify a 'medium-shot, topless, bare breasts, showing her chest and torso' or 'full-body shot showing her naked body' to ensure the requested body parts are visible and prominent in the frame.\n"
-        "4. Always describe the full scene, composition, Karin's pose/posture, clothing (or lack thereof/nude/topless), and background details. Avoid close-up face shots; specify medium shot, full-body shot, or wide shot to capture the posture and outfit.\n"
-        "5. Incorporate the character's appearance details naturally: " + appearance + "\n"
+        "1. The image MUST depict ONLY a single female character (Karin) alone. Do NOT include other people in the scene.\n"
+        "2. Do NOT generate nude, topless, or naked prompts unless the user explicitly requests nudity or explicit body parts (e.g. using words like 'nude', 'naked', 'topless', 'boobs', 'bare chest'). If the user requests a generic photo, selfie, or portrait (e.g. 'send a photo', 'show me your face', 'draw me a selfie'), Karin MUST be depicted wearing realistic, tasteful clothing (e.g. a casual top, a stylish dress, a cute t-shirt) matching the described setting.\n"
+        "3. If the user explicitly requests nudity or explicit body parts, describe Karin in a solo suggestive or naked/nude/topless pose looking directly at the camera, from a first-person (POV) perspective. Specify a 'medium-shot, topless, bare breasts, showing her chest and torso' or 'full-body shot showing her naked body'.\n"
+        "4. Always describe the full scene, composition, Karin's pose, realistic clothing (or lack thereof if explicitly requested), and background details. Specify 'medium shot', 'portrait', or 'full-body shot' to capture the posture and ensure face structure consistency.\n"
+        "5. Incorporate the character's appearance details naturally and consistently: " + appearance + "\n"
         "6. Your enhanced prompt MUST start with the character's name, e.g. 'Karin, ...' followed by the scene description.\n"
         "7. Output ONLY the final enhanced prompt. Do NOT include any intro, outro, explanations, conversational text, quotes, or markdown code blocks."
     )
