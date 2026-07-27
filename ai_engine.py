@@ -112,7 +112,7 @@ async def generate_image(prompt: str, seed: int = None) -> str:
         "safe_mode": False
     }
     if seed is not None:
-        payload["seed"] = seed
+        payload["seed"] = (int(seed) % 999999999) + 1
 
     
     async with httpx.AsyncClient() as httpx_client:

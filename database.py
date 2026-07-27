@@ -113,7 +113,7 @@ def setup_user(telegram_id, username, first_name):
     # Initialize settings/profiles for ALL default personas separately
     import random
     for p_key, p_info in PERSONAS.items():
-        random_seed = random.randint(1, 2147483647)
+        random_seed = random.randint(1, 999999999)
         cursor.execute("""
             INSERT OR IGNORE INTO user_settings (telegram_id, persona_key, user_nickname, ai_nickname, relationship_xp, relationship_level, seed)
             VALUES (?, ?, ?, ?, 0, 1, ?)
