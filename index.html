@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Karin AI - Premium Checkout</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --primary: #ff4a76;
+            --primary-hover: #e03b62;
+            --primary-light: rgba(255, 74, 118, 0.15);
+            --bg-gradient: linear-gradient(135deg, #0f0c1b 0%, #201026 50%, #0c0813 100%);
+            --card-bg: rgba(255, 255, 255, 0.03);
+            --card-border: rgba(255, 255, 255, 0.08);
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --text-success: #10b981;
+            --text-error: #ef4444;
+            --font-family: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: var(--font-family);
+            background: var(--bg-gradient);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            overflow-x: hidden;
+        }
+
+        /* Glassmorphism Card Container */
+        .checkout-container {
+            width: 100%;
+            max-width: 480px;
+            background: rgba(20, 16, 33, 0.6);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid var(--card-border);
+            border-radius: 24px;
+            padding: 40px 30px;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), 
+                        0 0 100px rgba(255, 74, 118, 0.05);
+            position: relative;
+            z-index: 1;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        /* Ambient Glow Blobs in Background */
+        .glow-blob {
+            position: absolute;
+            width: 300px;
+            height: 300px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(255, 74, 118, 0.15) 0%, rgba(255, 74, 118, 0) 70%);
+            filter: blur(40px);
+            z-index: 0;
+            pointer-events: none;
+        }
+        .blob-1 {
+            top: -100px;
+            right: -100px;
+        }
+        .blob-2 {
+            bottom: -100px;
+            left: -100px;
+        }
+
+        /* Header Style */
+        .header {
+            text-align: center;
+            margin-bottom: 35px;
+        }
+        .avatar-container {
+            position: relative;
+            width: 90px;
+            height: 90px;
+            margin: 0 auto 15px auto;
+            border-radius: 50%;
+            padding: 4px;
+            background: linear-gradient(135deg, var(--primary), #9d4edd);
+            box-shadow: 0 8px 24px rgba(255, 74, 118, 0.3);
+        }
+        .avatar {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            object-fit: cover;
+            background: #201026;
+        }
+        .title {
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            background: linear-gradient(135deg, #fff 40%, #ffcbd7 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 6px;
+        }
+        .subtitle {
+            font-size: 14px;
+            color: var(--text-muted);
+        }
+
+        /* Form Controls */
+        .form-group {
+            margin-bottom: 25px;
+        }
+        .label {
+            display: block;
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 8px;
+            color: var(--text-main);
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+        }
+        .input-wrapper {
+            position: relative;
+        }
+        .input {
+            width: 100%;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 14px 16px;
+            font-family: var(--font-family);
+            font-size: 16px;
+            color: var(--text-main);
+            outline: none;
+            transition: all 0.2s ease;
+        }
+        .input:focus {
+            border-color: var(--primary);
+            background: rgba(255, 255, 255, 0.08);
+            box-shadow: 0 0 0 4px var(--primary-light);
+        }
+        .input-hint {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 6px;
+        }
+
+        /* Product Selector Grid */
+        .product-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        .product-card {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 18px;
+            cursor: pointer;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .product-card:hover {
+            border-color: rgba(255, 74, 118, 0.4);
+            background: rgba(255, 255, 255, 0.05);
+            transform: translateY(-2px);
+        }
+        .product-card.selected {
+            border-color: var(--primary);
+            background: var(--primary-light);
+            box-shadow: 0 8px 20px rgba(255, 74, 118, 0.1);
+        }
+        .product-info {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .product-name {
+            font-size: 16px;
+            font-weight: 600;
+        }
+        .product-desc {
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+        .product-price {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--primary);
+        }
+        .product-card.selected .product-price {
+            color: #fff;
+        }
+        
+        /* Custom Radio Button inside card */
+        .product-radio {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            border: 2px solid var(--text-muted);
+            margin-right: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+            flex-shrink: 0;
+        }
+        .product-card.selected .product-radio {
+            border-color: var(--primary);
+            background: var(--primary);
+        }
+        .product-radio::after {
+            content: '';
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #fff;
+            transform: scale(0);
+            transition: transform 0.2s ease;
+        }
+        .product-card.selected .product-radio::after {
+            transform: scale(1);
+        }
+        
+        .card-left {
+            display: flex;
+            align-items: center;
+        }
+
+        /* Buttons & Dynamic Checkout */
+        .btn {
+            width: 100%;
+            background: linear-gradient(135deg, var(--primary) 0%, #ff6b8b 100%);
+            border: none;
+            border-radius: 14px;
+            padding: 16px;
+            font-family: var(--font-family);
+            font-size: 16px;
+            font-weight: 600;
+            color: #fff;
+            cursor: pointer;
+            box-shadow: 0 6px 20px rgba(255, 74, 118, 0.25);
+            transition: all 0.25s ease;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+        }
+        .btn:hover {
+            background: linear-gradient(135deg, var(--primary-hover) 0%, var(--primary) 100%);
+            transform: translateY(-1px);
+            box-shadow: 0 8px 25px rgba(255, 74, 118, 0.35);
+        }
+        .btn:active {
+            transform: translateY(1px);
+            box-shadow: 0 4px 15px rgba(255, 74, 118, 0.2);
+        }
+        .btn:disabled {
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text-muted);
+            cursor: not-allowed;
+            box-shadow: none;
+            transform: none;
+        }
+
+        /* Loading Spinner */
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            display: none;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Error & Warning Alert Banner */
+        .alert {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.25);
+            border-radius: 12px;
+            padding: 14px 16px;
+            margin-bottom: 25px;
+            font-size: 14px;
+            color: #fca5a5;
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            margin-top: 10px;
+            animation: fadeIn 0.3s ease;
+        }
+        .alert.hidden {
+            display: none;
+        }
+        .alert-icon {
+            font-size: 16px;
+            font-weight: 700;
+            background: var(--text-error);
+            color: #fff;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .alert-content {
+            flex-grow: 1;
+        }
+
+        /* Success screen overlays */
+        .success-screen {
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px 0;
+            animation: scaleUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .success-screen.hidden {
+            display: none;
+        }
+        
+        .success-checkmark {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background: rgba(16, 185, 129, 0.1);
+            border: 2px solid var(--text-success);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 25px;
+            color: var(--text-success);
+            font-size: 40px;
+            animation: checkmarkBounce 0.5s ease-out;
+        }
+
+        .success-title {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 12px;
+            color: #fff;
+        }
+
+        .success-desc {
+            font-size: 15px;
+            color: var(--text-muted);
+            margin-bottom: 30px;
+            line-height: 1.6;
+        }
+
+        .success-details-card {
+            width: 100%;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--card-border);
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 30px;
+            text-align: left;
+        }
+
+        .details-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 12px;
+            font-size: 14px;
+        }
+        .details-row:last-child {
+            margin-bottom: 0;
+        }
+        .details-label {
+            color: var(--text-muted);
+        }
+        .details-val {
+            font-weight: 500;
+            color: var(--text-main);
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes scaleUp {
+            from { opacity: 0; transform: scale(0.95); }
+            to { opacity: 1; transform: scale(1); }
+        }
+        @keyframes checkmarkBounce {
+            0% { transform: scale(0); }
+            70% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="glow-blob blob-1"></div>
+    <div class="glow-blob blob-2"></div>
+
+    <!-- Checkout Panel Card -->
+    <div class="checkout-container" id="checkout-panel">
+        
+        <div class="header">
+            <div class="avatar-container">
+                <!-- Using assets/karin.png if exists -->
+                <img class="avatar" src="/assets/karin.png" alt="Karin Avatar" onerror="this.src='https://i.imgur.com/8Qp4w0E.png';">
+            </div>
+            <h1 class="title">Karin AI</h1>
+            <p class="subtitle">Secure checkout for chat passes and image credits</p>
+        </div>
+
+        <!-- Alert Banner -->
+        <div class="alert hidden" id="alert-banner">
+            <div class="alert-icon">!</div>
+            <div class="alert-content" id="alert-message">Something went wrong.</div>
+        </div>
+
+        <form id="checkout-form" onsubmit="event.preventDefault(); initiatePayment();">
+            
+            <!-- Telegram ID Input -->
+            <div class="form-group">
+                <label class="label" for="telegram-id">Telegram User ID</label>
+                <div class="input-wrapper">
+                    <input class="input" type="text" id="telegram-id" placeholder="e.g. 123456789" required autocomplete="off">
+                </div>
+                <p class="input-hint">Your unique numerical Telegram ID. Required to activate purchases on your account.</p>
+            </div>
+
+            <!-- Item Selectors -->
+            <div class="form-group">
+                <label class="label">Select Packages</label>
+                <div class="product-grid">
+                    
+                    <!-- Chat Pass -->
+                    <div class="product-card selected" onclick="selectProduct(this, 'chat_pass', 5000)" id="product-chat-pass">
+                        <div class="card-left">
+                            <div class="product-radio"></div>
+                            <div class="product-info">
+                                <span class="product-name">3-Hour Chat Pass</span>
+                                <span class="product-desc">Unlimited chatting for 3 hours</span>
+                            </div>
+                        </div>
+                        <span class="product-price">₹50</span>
+                    </div>
+
+                    <!-- Image Credits -->
+                    <div class="product-card" onclick="selectProduct(this, 'image_credits', 5000)" id="product-image-credits">
+                        <div class="card-left">
+                            <div class="product-radio"></div>
+                            <div class="product-info">
+                                <span class="product-name">10 Image Credits</span>
+                                <span class="product-desc">Generate 10 images of Karin</span>
+                            </div>
+                        </div>
+                        <span class="product-price">₹50</span>
+                    </div>
+
+                </div>
+            </div>
+
+            <!-- Submit Button -->
+            <button type="submit" class="btn" id="pay-btn">
+                <span class="spinner" id="btn-spinner"></span>
+                <span id="btn-text">Proceed to Pay ₹50</span>
+            </button>
+
+        </form>
+
+    </div>
+
+    <!-- Success Screen (Hidden by Default) -->
+    <div class="checkout-container success-screen hidden" id="success-panel">
+        <div class="success-checkmark">✓</div>
+        <h2 class="success-title">Payment Successful!</h2>
+        <p class="success-desc" id="success-description">Your payment has been successfully verified. Your account will be credited shortly.</p>
+        
+        <div class="success-details-card">
+            <div class="details-row">
+                <span class="details-label">Order ID</span>
+                <span class="details-val" id="val-order-id">order_abc123</span>
+            </div>
+            <div class="details-row">
+                <span class="details-label">Payment ID</span>
+                <span class="details-val" id="val-payment-id">pay_xyz987</span>
+            </div>
+            <div class="details-row">
+                <span class="details-label">Item Purchased</span>
+                <span class="details-val" id="val-item">3-Hour Chat Pass</span>
+            </div>
+            <div class="details-row">
+                <span class="details-label">Details</span>
+                <span class="details-val" id="val-details">Expires in 3 hours</span>
+            </div>
+        </div>
+
+        <button class="btn" onclick="window.location.reload();">Back to Checkout</button>
+    </div>
+
+    <!-- Razorpay Checkout Script -->
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+    
+    <script>
+        // Global variables for active checkout
+        let selectedProduct = 'chat_pass';
+        let selectedAmount = 5000; // in paise (₹50)
+        let razorpayKeyId = '';
+
+        // Run when page loads to fetch configurations
+        async function fetchConfig() {
+            try {
+                const response = await fetch('/api/config');
+                if (response.ok) {
+                    const data = await response.json();
+                    razorpayKeyId = data.razorpay_key_id;
+                } else {
+                    showError("Could not fetch server configuration. Please reload the page.");
+                }
+            } catch (e) {
+                showError("Network error: Could not reach the server.");
+            }
+        }
+        
+        window.addEventListener('DOMContentLoaded', async () => {
+            await fetchConfig();
+            
+            // Parse query parameters from URL
+            const urlParams = new URLSearchParams(window.location.search);
+            const userId = urlParams.get('user_id');
+            const item = urlParams.get('item');
+            
+            if (userId) {
+                document.getElementById('telegram-id').value = userId;
+            }
+            if (item) {
+                if (item === 'chat_pass') {
+                    const card = document.getElementById('product-chat-pass');
+                    selectProduct(card, 'chat_pass', 5000);
+                } else if (item === 'image_credits') {
+                    const card = document.getElementById('product-image-credits');
+                    selectProduct(card, 'image_credits', 5000);
+                }
+            }
+        });
+
+        function selectProduct(element, productType, amount) {
+            // Remove selection class from all cards
+            document.querySelectorAll('.product-card').forEach(card => {
+                card.classList.remove('selected');
+            });
+            
+            // Set values
+            selectedProduct = productType;
+            selectedAmount = amount;
+            element.classList.add('selected');
+            
+            // Update button text
+            const displayPrice = (amount / 100).toFixed(0);
+            document.getElementById('pay-btn').querySelector('#btn-text').innerText = `Proceed to Pay ₹${displayPrice}`;
+            hideError();
+        }
+
+        function showError(message) {
+            const banner = document.getElementById('alert-banner');
+            const content = document.getElementById('alert-message');
+            content.innerText = message;
+            banner.classList.remove('hidden');
+        }
+
+        function hideError() {
+            const banner = document.getElementById('alert-banner');
+            banner.classList.add('hidden');
+        }
+
+        function setSubmitting(submitting) {
+            const payBtn = document.getElementById('pay-btn');
+            const spinner = document.getElementById('btn-spinner');
+            const btnText = document.getElementById('btn-text');
+            const input = document.getElementById('telegram-id');
+            
+            if (submitting) {
+                payBtn.disabled = true;
+                input.disabled = true;
+                spinner.style.display = 'block';
+                btnText.style.opacity = '0.7';
+            } else {
+                payBtn.disabled = false;
+                input.disabled = false;
+                spinner.style.display = 'none';
+                btnText.style.opacity = '1.0';
+            }
+        }
+
+        async function initiatePayment() {
+            hideError();
+            const telegramId = document.getElementById('telegram-id').value.trim();
+            
+            // Quick local validation of telegram id
+            if (!telegramId || isNaN(telegramId)) {
+                showError("Please enter a valid numerical Telegram User ID.");
+                return;
+            }
+            
+            if (!razorpayKeyId) {
+                showError("Razorpay client is not configured yet. Retrying configuration fetch...");
+                await fetchConfig();
+                if (!razorpayKeyId) return;
+            }
+
+            setSubmitting(true);
+
+            // Step 1: Create Order on Backend
+            let orderData;
+            try {
+                const response = await fetch('/api/create-order', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        amount: selectedAmount,
+                        currency: 'INR',
+                        receipt: `receipt_${telegramId}_${Date.now()}`,
+                        user_id: telegramId,
+                        item_type: selectedProduct
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorResponse = await response.json();
+                    throw new Error(errorResponse.error || "Server failed to initiate transaction.");
+                }
+
+                orderData = await response.json();
+            } catch (err) {
+                setSubmitting(false);
+                showError(err.message || "Failed to contact order generation endpoint.");
+                return;
+            }
+
+            // Step 2: Configure and open Razorpay modal
+            const options = {
+                key: razorpayKeyId,
+                amount: orderData.amount,
+                currency: orderData.currency,
+                name: "Karin AI Companion",
+                description: selectedProduct === 'chat_pass' ? "3-Hour Unlimited Chat Pass" : "10 Premium Image Credits",
+                order_id: orderData.order_id,
+                prefill: {
+                    name: `User ID: ${telegramId}`
+                },
+                theme: {
+                    color: "#ff4a76"
+                },
+                handler: async function (paymentResponse) {
+                    // This function runs on payment success in modal
+                    setSubmitting(true);
+                    
+                    // Step 3: Verify signature on Backend
+                    try {
+                        const verifyResponse = await fetch('/api/verify-payment', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                razorpay_payment_id: paymentResponse.razorpay_payment_id,
+                                razorpay_order_id: paymentResponse.razorpay_order_id,
+                                razorpay_signature: paymentResponse.razorpay_signature,
+                                user_id: telegramId,
+                                item_type: selectedProduct
+                            })
+                        });
+
+                        if (!verifyResponse.ok) {
+                            const verifyErr = await verifyResponse.json();
+                            throw new Error(verifyErr.error || "Payment signature verification failed.");
+                        }
+
+                        const result = await verifyResponse.json();
+                        
+                        // Switch to Success screen
+                        document.getElementById('checkout-panel').classList.add('hidden');
+                        
+                        document.getElementById('val-order-id').innerText = paymentResponse.razorpay_order_id;
+                        document.getElementById('val-payment-id').innerText = paymentResponse.razorpay_payment_id;
+                        document.getElementById('val-item').innerText = selectedProduct === 'chat_pass' ? "3-Hour Chat Pass" : "10 Image Credits";
+                        document.getElementById('val-details').innerText = result.details || "Activated successfully";
+                        
+                        document.getElementById('success-panel').classList.remove('hidden');
+                    } catch (verifyErr) {
+                        setSubmitting(false);
+                        showError(verifyErr.message || "Failed to verify payment signature on backend.");
+                    }
+                },
+                modal: {
+                    ondismiss: function () {
+                        setSubmitting(false);
+                        showError("Payment modal was closed before completion. Transaction cancelled.");
+                    }
+                }
+            };
+
+            const rzp = new Razorpay(options);
+            
+            rzp.on('payment.failed', function (resp) {
+                setSubmitting(false);
+                showError(`Payment Failed: ${resp.error.description} (Code: ${resp.error.code})`);
+            });
+            
+            rzp.open();
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,4 @@
+.env
+girlfriend.db
+__pycache__/
+*.pyc

@@ -1,0 +1,255 @@
+import os
+import sys
+import unittest
+from unittest.mock import patch, AsyncMock
+
+# Add root directory to python path
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+import config
+import database
+import ai_engine
+
+class TestGirlfriendApp(unittest.TestCase):
+    
+    @classmethod
+    def setUpClass(cls):
+        # Delete old database to ensure clean run
+        if os.path.exists("girlfriend.db"):
+            try:
+                os.remove("girlfriend.db")
+            except OSError:
+                pass
+        database.init_db()
+        
+    def test_01_config_loading(self):
+        """Verify settings and level thresholds are defined correctly."""
+        self.assertIsNotNone(config.PERSONAS)
+        self.assertIn("karin", config.PERSONAS)
+        self.assertNotIn("sakura", config.PERSONAS)  # Sakura should be removed
+        self.assertIsNotNone(config.VENICE_IMAGE_MODEL)
+        self.assertEqual(config.VENICE_IMAGE_MODEL, "lustify-v7")
+        
+        # Test level ranges
+        status_l1 = config.get_relationship_status(0)
+        self.assertEqual(status_l1["level"], 1)
+        self.assertEqual(status_l1["title"], "Acquaintances")
+        self.assertEqual(status_l1["percent"], 0)
+        
+        status_l3 = config.get_relationship_status(450)
+        self.assertEqual(status_l3["level"], 3)
+        self.assertEqual(status_l3["title"], "Close Friends")
+        
+        # Max level boundary
+        status_max = config.get_relationship_status(5000)
+        self.assertEqual(status_max["level"], 6)
+        self.assertEqual(status_max["title"], "Soulmates")
+        self.assertEqual(status_max["percent"], 100)
+        
+    def test_02_database_operations(self):
+        """Verify DB initialization, Karin profile updates, XP increments, and history logging."""
+        test_id = 999999999
+        username = "test_user"
+        first_name = "Tester"
+        
+        # Setup user
+        database.setup_user(test_id, username, first_name)
+        
+        # Verify user settings default to Karin
+        settings = database.get_user_settings(test_id)
+        self.assertIsNotNone(settings)
+        self.assertEqual(settings["active_persona"], "karin")
+        self.assertEqual(settings["user_nickname"], "Tester")
+        self.assertEqual(settings["ai_nickname"], "Karin")
+        self.assertEqual(settings["relationship_xp"], 0)
+        self.assertEqual(settings["relationship_level"], 1)
+        
+        # Test updating nicknames
+        database.update_nicknames(test_id, user_nickname="Honey", ai_nickname="Karin Baby")
+        settings = database.get_user_settings(test_id)
+        self.assertEqual(settings["user_nickname"], "Honey")
+        self.assertEqual(settings["ai_nickname"], "Karin Baby")
+        
+        # Test XP increments for Karin
+        leveled_up, level, title = database.add_xp(test_id, amount=120)
+        settings = database.get_user_settings(test_id)
+        self.assertTrue(leveled_up)
+        self.assertEqual(level, 2)
+        self.assertEqual(settings["relationship_xp"], 120)
+        
+        # Test chat messages logging
+        database.add_chat_message(test_id, "karin", "user", "I want you.")
+        database.add_chat_message(test_id, "karin", "assistant", "Hmph, really? 😳")
+        
+        history = database.get_chat_history(test_id, "karin")
+        self.assertEqual(len(history), 2)
+        self.assertEqual(history[0]["role"], "user")
+        self.assertEqual(history[0]["content"], "I want you.")
+        self.assertEqual(history[1]["role"], "assistant")
+        self.assertEqual(history[1]["content"], "Hmph, really? 😳")
+        
+        # Test clear logs
+        database.clear_chat_history(test_id, "karin")
+        history = database.get_chat_history(test_id, "karin")
+        self.assertEqual(len(history), 0)
+        
+    def test_03_ai_engine_initialization(self):
+        """Verify prompt constructs contains image generation triggers and nicknames."""
+        test_id = 888888888
+        database.setup_user(test_id, "dummy", "Dummy")
+        settings = database.get_user_settings(test_id)
+        
+        # Test system prompt builder
+        system_prompt = config.construct_system_prompt(
+            persona_key=settings["active_persona"],
+            relationship_xp=settings["relationship_xp"],
+            user_nickname=settings["user_nickname"],
+            ai_nickname=settings["ai_nickname"]
+        )
+        
+        self.assertIn("Karin", system_prompt)
+        self.assertIn("loving, sweet girlfriend", system_prompt)
+        self.assertIn("Dummy", system_prompt)
+        self.assertIn("GENERATE_IMAGE", system_prompt)  # Ensure tag guidelines are present
+
+    def test_04_billing_operations(self):
+        """Verify billing db helpers, limits, and blocking checks."""
+        test_id = 777777777
+        database.setup_user(test_id, "billing_user", "BillingUser")
+        
+        # Initial check
+        billing = database.get_user_billing(test_id)
+        self.assertIsNotNone(billing)
+        self.assertEqual(billing["free_messages_used"], 0)
+        self.assertEqual(billing["image_credits"], 0)
+        self.assertIsNone(billing["chat_expires_at"])
+        
+        # Chat subscription is initially False
+        self.assertFalse(database.is_chat_subscribed(test_id))
+        
+        # Increment free messages
+        database.increment_free_messages(test_id)
+        billing = database.get_user_billing(test_id)
+        self.assertEqual(billing["free_messages_used"], 1)
+        
+        # Grant chat pass
+        expiry = database.grant_chat_pass(test_id, hours=3)
+        self.assertIsNotNone(expiry)
+        self.assertTrue(database.is_chat_subscribed(test_id))
+        
+        # Grant image credits
+        database.grant_image_credits(test_id, amount=10)
+        billing = database.get_user_billing(test_id)
+        self.assertEqual(billing["image_credits"], 10)
+        
+        # Deduct image credit
+        success = database.use_image_credit(test_id)
+        self.assertTrue(success)
+        billing = database.get_user_billing(test_id)
+        self.assertEqual(billing["image_credits"], 9)
+        
+        # Deduct all remaining credits to test boundary
+        for _ in range(9):
+            database.use_image_credit(test_id)
+        billing = database.get_user_billing(test_id)
+        self.assertEqual(billing["image_credits"], 0)
+        
+        # Next deduction should fail
+        success = database.use_image_credit(test_id)
+        self.assertFalse(success)
+        
+    def test_05_consistent_face_prompt(self):
+        """Verify prompt combination logic avoids duplication and prepends appearance correctly."""
+        appearance = "Karin, a beautiful blonde girl"
+        
+        # Scenario 1: Prompt starts with character name
+        prompt_with_name = "Karin looking sexy in bedroom"
+        full_prompt = config.combine_appearance_and_prompt(appearance, prompt_with_name)
+        self.assertEqual(full_prompt, "Karin, a beautiful blonde girl, looking sexy in bedroom")
+        
+        # Scenario 2: Prompt doesn't start with character name
+        prompt_no_name = "looking naughty, smiling"
+        full_prompt_no_name = config.combine_appearance_and_prompt(appearance, prompt_no_name)
+        self.assertEqual(full_prompt_no_name, "Karin, a beautiful blonde girl, looking naughty, smiling")
+        
+        # Scenario 3: Empty prompt
+        full_prompt_empty = config.combine_appearance_and_prompt(appearance, "")
+        self.assertEqual(full_prompt_empty, appearance)
+
+    @patch('os.listdir')
+    @patch('os.path.exists')
+    def test_06_reaction_gifs_logic(self, mock_exists, mock_listdir):
+        """Verify GIF scanning based strictly on file names and heuristic matching logic."""
+        mock_exists.return_value = True
+        mock_listdir.return_value = ["kissing.gif", "holding-hands.gif", "smile.gif"]
+        
+        gif_descriptions = config.get_gif_descriptions()
+        
+        # Check description loading
+        self.assertIn("kissing", gif_descriptions)
+        self.assertEqual(gif_descriptions["kissing"], "kissing")
+        
+        self.assertIn("holding-hands", gif_descriptions)
+        self.assertEqual(gif_descriptions["holding-hands"], "holding hands")
+        
+        self.assertIn("smile", gif_descriptions)
+        self.assertEqual(gif_descriptions["smile"], "smile")
+        
+        # Match via prefix/fuzzy keyword ("kiss" matches "kissing")
+        match1 = config.find_matching_gif("she blew a kiss", "she did?", gif_descriptions)
+        self.assertEqual(match1, "kissing")
+        
+        # Match via fallback name ("hold hands" matches "holding hands")
+        match2 = config.find_matching_gif("I want to hold hands with you", "me too", gif_descriptions)
+        self.assertEqual(match2, "holding-hands")
+        
+        # Match via keyword ("smiling" matches "smile")
+        match3 = config.find_matching_gif("why are you smiling?", "because I'm happy!", gif_descriptions)
+        self.assertEqual(match3, "smile")
+        
+        # Non-matching test
+        match4 = config.find_matching_gif("random text", "hello world", gif_descriptions)
+        self.assertIsNone(match4)
+
+    @patch('ai_engine.client.chat.completions.create', new_callable=AsyncMock)
+    def test_07_enhance_image_prompt_success(self, mock_chat_create):
+        """Verify prompt enhancement formats system instructions and handles API returns."""
+        import asyncio
+        from unittest.mock import MagicMock
+        
+        mock_choice = MagicMock()
+        mock_choice.message.content = "Karin, a beautiful blonde girl in a passionate embrace, full body shot, detailed scene"
+        
+        mock_response = MagicMock()
+        mock_response.choices = [mock_choice]
+        
+        mock_chat_create.return_value = mock_response
+        
+        enhanced = asyncio.run(ai_engine.enhance_image_prompt("send me a photo like I am fucking you", "Karin, a beautiful blonde girl"))
+        self.assertEqual(enhanced, "Karin, a beautiful blonde girl in a passionate embrace, full body shot, detailed scene")
+
+    @patch('ai_engine.client.chat.completions.create', new_callable=AsyncMock)
+    def test_08_enhance_image_prompt_fallback(self, mock_chat_create):
+        """Verify prompt enhancement falls back to combine_appearance_and_prompt on error."""
+        import asyncio
+        mock_chat_create.side_effect = Exception("API Error")
+        enhanced = asyncio.run(ai_engine.enhance_image_prompt("some user request", "Karin, a beautiful blonde girl"))
+        self.assertEqual(enhanced, "Karin, a beautiful blonde girl, some user request")
+
+    def test_09_database_seed_generation(self):
+        """Verify that a random persistent seed is generated and preserved in user settings."""
+        test_id = 99991111
+        database.setup_user(test_id, "seed_user", "SeedUser")
+        
+        settings = database.get_user_settings(test_id)
+        self.assertIsNotNone(settings)
+        seed1 = settings.get("seed")
+        self.assertIsNotNone(seed1)
+        self.assertTrue(1 <= seed1 <= 2147483647)
+        
+        # Verify it stays consistent on subsequent fetches
+        settings_retry = database.get_user_settings(test_id)
+        self.assertEqual(settings_retry.get("seed"), seed1)
+
+if __name__ == "__main__":
+    unittest.main()
