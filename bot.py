@@ -65,30 +65,19 @@ def get_progress_bar(percent):
 # --- Command Handlers ---
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Greets the user, initializes them with Karin, and sends her avatar immediately."""
+    """Greets the user and starts the onboarding process (asking for nickname)."""
     user = update.effective_user
     database.setup_user(user.id, user.username, user.first_name)
     database.update_active_persona(user.id, "karin")
     
-    persona = config.PERSONAS["karin"]
-    avatar_path = persona["avatar_path"]
+    # Set state to await nickname on start
+    USER_STATES[user.id] = "AWAITING_START_NICKNAME"
     
-    welcome_text = (
-        f"⚡ <b>Hello {html.escape(user.first_name)}, I'm Karin!</b> ⚡\n\n"
-        f"<i>\"{persona['description']}\"</i>\n\n"
-        f"I'm your girlfriend now. Let's chat! What do you want to talk about? 😉\n\n"
-        f"<i>Tip: You can ask me to send you a picture at any time! You can also use /draw &lt;prompt&gt; to generate custom images.</i>"
+    await update.message.reply_text(
+        "👋 Welcome! Before we begin, what should I call you?\n\n"
+        "💬 Please type the nickname you want me to call you (e.g. <i>Honey, Darling, master</i>, or your real name):",
+        parse_mode="HTML"
     )
-    
-    if os.path.exists(avatar_path):
-        with open(avatar_path, "rb") as photo:
-            await update.message.reply_photo(
-                photo=photo,
-                caption=welcome_text,
-                parse_mode="HTML"
-            )
-    else:
-        await update.message.reply_text(welcome_text, parse_mode="HTML")
 
 
 async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -271,8 +260,48 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     # Ensure user exists in database
     database.setup_user(user_id, query.from_user.username, query.from_user.first_name)
     
+    # 0. Onboarding Orientation Selection Triggers
+    if data in ["set_orientation_straight", "set_orientation_lesbian"]:
+        orientation = "straight" if data == "set_orientation_straight" else "lesbian"
+        database.update_user_orientation(user_id, orientation)
+        USER_STATES.pop(user_id, None)
+        
+        # Now welcome them!
+        settings = database.get_user_settings(user_id)
+        u_nick = settings["user_nickname"] if settings and settings["user_nickname"] else "User"
+        persona = config.PERSONAS["karin"]
+        avatar_path = persona["avatar_path"]
+        
+        welcome_text = (
+            f"⚡ <b>Hello {html.escape(u_nick)}! I'm Karin!</b> ⚡\n\n"
+            f"<i>\"{persona['description']}\"</i>\n\n"
+            f"I'm your girlfriend now. Let's chat! What do you want to talk about? 😉\n\n"
+            f"<i>Tip: You can ask me to send you a picture at any time! You can also use /draw &lt;prompt&gt; to generate custom images.</i>"
+        )
+        
+        try:
+            await query.message.delete()
+        except Exception:
+            pass
+            
+        if os.path.exists(avatar_path):
+            with open(avatar_path, "rb") as photo:
+                await context.bot.send_photo(
+                    chat_id=user_id,
+                    photo=photo,
+                    caption=welcome_text,
+                    parse_mode="HTML"
+                )
+        else:
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=welcome_text,
+                parse_mode="HTML"
+            )
+        return
+        
     # 1. Profile Menu: Nicknames Screen
-    if data == "menu_nicknames":
+    elif data == "menu_nicknames":
         settings = database.get_user_settings(user_id)
         u_nick = settings["user_nickname"] if settings["user_nickname"] else "User"
         ai_nick = settings["ai_nickname"] if settings["ai_nickname"] else "Karin"
@@ -737,11 +766,34 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Initialize user settings in case
     database.setup_user(user.id, user.username, user.first_name)
     
-    # 1. State Machine Check: User is changing nickname settings
+    # 1. State Machine Check: Onboarding or Nickname Settings
     if user.id in USER_STATES:
         state = USER_STATES[user.id]
         
-        if state == "AWAITING_USER_NICKNAME":
+        if state == "AWAITING_START_NICKNAME":
+            database.update_nicknames(user.id, user_nickname=text)
+            USER_STATES[user.id] = "AWAITING_START_ORIENTATION"
+            keyboard = [
+                [
+                    InlineKeyboardButton("Straight (Boyfriend ♂️)", callback_data="set_orientation_straight"),
+                    InlineKeyboardButton("Lesbian (Girlfriend ♀️)", callback_data="set_orientation_lesbian")
+                ]
+            ]
+            await update.message.reply_text(
+                f"Great! I will call you <b>{html.escape(text)}</b>. 🥰\n\n"
+                "Next, please select your relationship style:",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="HTML"
+            )
+            return
+            
+        elif state == "AWAITING_START_ORIENTATION":
+            await update.message.reply_text(
+                "⚠️ Please select your relationship style using the buttons above before we begin!"
+            )
+            return
+            
+        elif state == "AWAITING_USER_NICKNAME":
             database.update_nicknames(user.id, user_nickname=text)
             USER_STATES.pop(user.id, None)
             await update.message.reply_text(

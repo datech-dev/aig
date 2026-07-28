@@ -99,6 +99,12 @@ def init_db():
         cursor.execute("ALTER TABLE user_settings ADD COLUMN recent_gifs TEXT DEFAULT ''")
     except sqlite3.OperationalError:
         pass
+
+    # Run migration to add user_orientation column to user_settings if not exists
+    try:
+        cursor.execute("ALTER TABLE user_settings ADD COLUMN user_orientation TEXT DEFAULT 'straight'")
+    except sqlite3.OperationalError:
+        pass
         
     conn.commit()
     conn.close()
@@ -544,6 +550,20 @@ def add_user_recent_gif(telegram_id, persona_key, gif_name):
         SET recent_gifs = ?
         WHERE telegram_id = ? AND persona_key = ?
     """, (",".join(recent), telegram_id, persona_key))
+    conn.commit()
+    conn.close()
+
+
+def update_user_orientation(telegram_id, orientation):
+    """Updates custom user orientation settings."""
+    active_persona = get_active_persona_key(telegram_id)
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE user_settings 
+        SET user_orientation = ?
+        WHERE telegram_id = ? AND persona_key = ?
+    """, (orientation, telegram_id, active_persona))
     conn.commit()
     conn.close()
 

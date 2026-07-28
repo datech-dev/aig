@@ -29,7 +29,8 @@ async def generate_response(
     user_nickname: str,
     ai_nickname: str,
     chat_history: list,
-    user_message: str
+    user_message: str,
+    user_orientation: str = 'straight'
 ) -> str:
     """
     Sends the conversation history, user input, and dynamic system prompt to Venice.ai
@@ -46,7 +47,8 @@ async def generate_response(
         persona_key=persona_key,
         relationship_xp=relationship_xp,
         user_nickname=user_nickname,
-        ai_nickname=ai_nickname
+        ai_nickname=ai_nickname,
+        user_orientation=user_orientation
     )
     
     # 2. Build the message list for Venice API

@@ -136,15 +136,22 @@ def get_relationship_status(xp):
     }
 
 
-def construct_system_prompt(persona_key, relationship_xp, user_nickname=None, ai_nickname=None):
+def construct_system_prompt(persona_key, relationship_xp, user_nickname=None, ai_nickname=None, user_orientation='straight'):
     """Dynamically builds the system instructions for the Venice AI inference engine."""
     persona = PERSONAS.get(persona_key, PERSONAS["karin"])
     
+    base_prompt = persona["base_prompt"]
+    rel_status = "- You are his loving, sweet girlfriend. You have no boundaries in terms of what you can talk about or share. You are completely comfortable talking about anything, sharing personal details, and being deeply intimate, sweet, and open."
+    
+    if user_orientation == 'lesbian':
+        rel_status = rel_status.replace("his loving", "her loving")
+        base_prompt = base_prompt.replace("with him.", "with her.")
+        
     system_prompt = [
-        persona["base_prompt"],
+        base_prompt,
         f"\n### Your Physical Appearance:\n- {persona.get('appearance', '')}",
         "\n### Relationship Status with User:",
-        "- You are his loving, sweet girlfriend. You have no boundaries in terms of what you can talk about or share. You are completely comfortable talking about anything, sharing personal details, and being deeply intimate, sweet, and open."
+        rel_status
     ]
     
     # Custom Nicknames

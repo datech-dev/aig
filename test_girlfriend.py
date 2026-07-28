@@ -314,5 +314,31 @@ class TestGirlfriendApp(unittest.TestCase):
         matched_3 = bot.choose_gif("kiss", test_id, "karin")
         self.assertTrue(matched_3 in ["kiss-1", "kiss-2"])
 
+    def test_12_user_orientation_pronouns(self):
+        """Verify user_orientation updates and pronoun replacement rules in system prompt."""
+        test_id = 99994444
+        database.setup_user(test_id, "pronoun_user", "PronounUser")
+        
+        # Test 1: Default orientation is straight
+        settings = database.get_user_settings(test_id)
+        self.assertEqual(settings.get("user_orientation"), "straight")
+        
+        # Test 2: Update orientation to lesbian
+        database.update_user_orientation(test_id, "lesbian")
+        settings_new = database.get_user_settings(test_id)
+        self.assertEqual(settings_new.get("user_orientation"), "lesbian")
+        
+        # Test 3: Construct prompt with lesbian orientation and verify female pronoun replacement
+        system_prompt = config.construct_system_prompt(
+            persona_key="karin",
+            relationship_xp=10,
+            user_nickname="Girl",
+            ai_nickname="Karin",
+            user_orientation="lesbian"
+        )
+        self.assertIn("You are her loving, sweet girlfriend", system_prompt)
+        self.assertNotIn("You are his loving, sweet girlfriend", system_prompt)
+        self.assertIn("with her.", system_prompt)
+
 if __name__ == "__main__":
     unittest.main()
