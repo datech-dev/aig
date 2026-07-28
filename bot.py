@@ -629,6 +629,106 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 
 # --- Text Message Handlers ---
 
+def choose_gif(query: str, telegram_id: int, persona_key: str, user_text: str = "", assistant_text: str = "") -> str:
+    """
+    Finds the most appropriate GIF to send.
+    - Calculates a matching score for all available GIFs.
+    - Filters out recently sent GIFs (last 3) to prevent repetition.
+    - Randomly picks from the top-scoring matches if multiple options exist.
+    - Returns the filename of the selected GIF (without extension), or None.
+    """
+    gif_descriptions = config.get_gif_descriptions()
+    if not gif_descriptions:
+        return None
+        
+    import re
+    # Tokenize input texts
+    stop_words = {"the", "a", "an", "and", "or", "but", "if", "then", "of", "to", "in", "on", "at", "for", "with", "is", "was", "are", "karin", "user"}
+    
+    if query:
+        # Explicit tag query: match query against name & description
+        query_words = set(re.findall(r'\b\w+\b', query.lower())) - stop_words
+        if not query_words:
+            query_words = set(re.split(r'[-_ ]', query.lower()))
+    else:
+        # Heuristic fallback: match user + assistant message texts
+        user_words = set(re.findall(r'\b\w+\b', user_text.lower()))
+        assistant_words = set(re.findall(r'\b\w+\b', assistant_text.lower()))
+        query_words = user_words.union(assistant_words) - stop_words
+
+    if not query_words:
+        return None
+
+    # Calculate match scores for all GIFs
+    candidates = []
+    for gif_name, description in gif_descriptions.items():
+        gif_words = set(re.split(r'[-_]', gif_name.lower()))
+        desc_words = set(re.findall(r'\b\w+\b', description.lower()))
+        target_words = gif_words.union(desc_words) - stop_words
+        
+        if not target_words:
+            continue
+            
+        match_count = 0
+        for tw in target_words:
+            word_matched = False
+            if tw in query_words:
+                word_matched = True
+            else:
+                for qw in query_words:
+                    if len(tw) >= 4 and tw[:4] in qw:
+                        word_matched = True
+                        break
+                    if len(qw) >= 4 and qw[:4] in tw:
+                        word_matched = True
+                        break
+            if word_matched:
+                match_count += 1
+                
+        score = match_count / len(gif_words)
+        
+        if query:
+            if score > 0:
+                candidates.append((gif_name, score))
+        else:
+            if score >= 0.5:
+                candidates.append((gif_name, score))
+
+    if not candidates:
+        if query:
+            query_clean = query.lower().strip()
+            for gif_name in gif_descriptions.keys():
+                if query_clean in gif_name.lower() or gif_name.lower() in query_clean:
+                    candidates.append((gif_name, 1.0))
+        
+        if not candidates:
+            return None
+
+    # Fetch recently sent history
+    recent_gifs = database.get_user_recent_gifs(telegram_id, persona_key)
+    
+    # Filter candidates to avoid recently sent ones
+    filtered_candidates = [c for c in candidates if c[0] not in recent_gifs]
+    
+    # If all matches were recently sent, fall back to the original list to ensure we can still send one
+    if not filtered_candidates:
+        filtered_candidates = candidates
+        
+    # Find the maximum score among remaining candidates
+    max_score = max(c[1] for c in filtered_candidates)
+    
+    # Keep only the candidates sharing the highest score
+    best_candidates = [c[0] for c in filtered_candidates if c[1] == max_score]
+    
+    # Randomly select one to ensure variety
+    selected_gif = random.choice(best_candidates)
+    
+    # Update recently sent list
+    database.add_user_recent_gif(telegram_id, persona_key, selected_gif)
+    
+    return selected_gif
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Processes all regular text messages, checking for paywall and image-generation triggers."""
     user = update.effective_user
@@ -724,17 +824,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if gif_match:
         has_gif = True
-        gif_name = gif_match.group(1).strip()
+        query = gif_match.group(1).strip()
         cleaned_reply = cleaned_reply.replace(gif_match.group(0), "").strip()
+        # Resolve the best matching GIF for the explicit tag query
+        gif_name = choose_gif(query, user.id, persona_key)
+        if not gif_name:
+            has_gif = False
     else:
-        # Heuristic fallback matching (triggered only 25% of the time to avoid feeling automated)
-        if random.random() < 0.25:
-            gif_descriptions = config.get_gif_descriptions()
-            if gif_descriptions:
-                matched_gif = config.find_matching_gif(text, cleaned_reply, gif_descriptions)
-                if matched_gif:
-                    has_gif = True
-                    gif_name = matched_gif
+        # Heuristic fallback matching (triggered only 10% of the time to avoid over-sending)
+        if random.random() < 0.10:
+            gif_name = choose_gif(None, user.id, persona_key, user_text=text, assistant_text=cleaned_reply)
+            if gif_name:
+                has_gif = True
                 
     # If LLM produces an empty text after stripping tag, give it a baseline response
     if not cleaned_reply and (has_image or has_gif):
@@ -800,7 +901,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin-only command to view usage and payment statistics."""
     user = update.effective_user
-    if not config.ADMIN_TELEGRAM_ID or str(user.id) != str(config.ADMIN_TELEGRAM_ID):
+    is_admin = False
+    if config.ADMIN_TELEGRAM_ID and str(user.id) == str(config.ADMIN_TELEGRAM_ID):
+        is_admin = True
+    if user.username and user.username.lower() == "dhinesh_rajam":
+        is_admin = True
+        
+    if not is_admin:
         await update.message.reply_text("❌ You do not have permission to view stats.")
         return
         

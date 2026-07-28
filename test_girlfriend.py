@@ -288,5 +288,31 @@ class TestGirlfriendApp(unittest.TestCase):
         self.assertEqual(recent["item_type"], "chat_pass")
         self.assertEqual(recent["username"], "stats_user")
 
+    @patch('config.get_gif_descriptions')
+    def test_11_gif_selection_deduplication(self, mock_get_descs):
+        """Verify choose_gif selection, de-duplication, and randomness rules."""
+        mock_get_descs.return_value = {
+            "kiss-1": "karin kissing cheek",
+            "kiss-2": "karin kissing neck",
+            "cuddle": "karin cuddling with user",
+            "smile": "smiling happily"
+        }
+        test_id = 99993333
+        database.setup_user(test_id, "gif_user", "GifUser")
+        
+        # Test 1: First request for "kiss" matches one of the kiss options
+        import bot
+        matched_1 = bot.choose_gif("kiss", test_id, "karin")
+        self.assertTrue(matched_1 in ["kiss-1", "kiss-2"])
+        
+        # Test 2: Next request for "kiss" should select the other kiss option to avoid duplication
+        matched_2 = bot.choose_gif("kiss", test_id, "karin")
+        self.assertTrue(matched_2 in ["kiss-1", "kiss-2"])
+        self.assertNotEqual(matched_1, matched_2)
+        
+        # Test 3: Third request - since both have been sent, history filters them out but defaults back to prevent empty result
+        matched_3 = bot.choose_gif("kiss", test_id, "karin")
+        self.assertTrue(matched_3 in ["kiss-1", "kiss-2"])
+
 if __name__ == "__main__":
     unittest.main()

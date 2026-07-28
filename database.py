@@ -93,6 +93,12 @@ def init_db():
         cursor.execute("ALTER TABLE user_settings ADD COLUMN seed INTEGER DEFAULT NULL")
     except sqlite3.OperationalError:
         pass
+
+    # Run migration to add recent_gifs column to user_settings if not exists
+    try:
+        cursor.execute("ALTER TABLE user_settings ADD COLUMN recent_gifs TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
         
     conn.commit()
     conn.close()
@@ -504,4 +510,40 @@ def get_admin_stats():
         "total_revenue_inr": total_revenue_inr,
         "recent_payments": recent_payments
     }
+
+
+def get_user_recent_gifs(telegram_id, persona_key):
+    """Retrieves the list of recently sent GIF names for a user."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT recent_gifs FROM user_settings 
+        WHERE telegram_id = ? AND persona_key = ?
+    """, (telegram_id, persona_key))
+    row = cursor.fetchone()
+    conn.close()
+    if row and row["recent_gifs"]:
+        return [g.strip() for g in row["recent_gifs"].split(",") if g.strip()]
+    return []
+
+
+def add_user_recent_gif(telegram_id, persona_key, gif_name):
+    """Adds a GIF name to the user's recently sent list (keeps last 3)."""
+    recent = get_user_recent_gifs(telegram_id, persona_key)
+    # Remove if already exists, to push to the end (most recent)
+    if gif_name in recent:
+        recent.remove(gif_name)
+    recent.append(gif_name)
+    # Keep last 3 elements
+    recent = recent[-3:]
+    
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE user_settings 
+        SET recent_gifs = ?
+        WHERE telegram_id = ? AND persona_key = ?
+    """, (",".join(recent), telegram_id, persona_key))
+    conn.commit()
+    conn.close()
 
