@@ -251,5 +251,42 @@ class TestGirlfriendApp(unittest.TestCase):
         settings_retry = database.get_user_settings(test_id)
         self.assertEqual(settings_retry.get("seed"), seed1)
 
+    def test_10_admin_stats_and_payments(self):
+        """Verify tracking of payments and calculations of admin statistics."""
+        test_user_id = 88882222
+        database.setup_user(test_user_id, "stats_user", "StatsUser")
+        
+        # Initial stats
+        initial_stats = database.get_admin_stats()
+        self.assertIn("total_users", initial_stats)
+        self.assertIn("paying_users", initial_stats)
+        self.assertIn("total_payments", initial_stats)
+        self.assertIn("total_revenue_inr", initial_stats)
+        
+        # Log a payment
+        payment_id = "pay_test_123"
+        order_id = "order_test_123"
+        amount = 5000  # ₹50.00
+        item_type = "chat_pass"
+        
+        database.log_payment(test_user_id, payment_id, order_id, amount, item_type)
+        
+        # Log a duplicate payment to ensure unique constraint logic/no error
+        database.log_payment(test_user_id, payment_id, order_id, amount, item_type)
+        
+        # Verify stats after payment
+        new_stats = database.get_admin_stats()
+        self.assertGreater(new_stats["total_users"], 0)
+        self.assertEqual(new_stats["total_payments"], initial_stats["total_payments"] + 1)
+        self.assertEqual(new_stats["total_revenue_inr"], initial_stats["total_revenue_inr"] + 50.00)
+        
+        # Check recent payments info
+        self.assertTrue(len(new_stats["recent_payments"]) > 0)
+        recent = new_stats["recent_payments"][0]
+        self.assertEqual(recent["payment_id"], payment_id)
+        self.assertEqual(recent["amount_inr"], 50.0)
+        self.assertEqual(recent["item_type"], "chat_pass")
+        self.assertEqual(recent["username"], "stats_user")
+
 if __name__ == "__main__":
     unittest.main()

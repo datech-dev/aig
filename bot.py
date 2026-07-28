@@ -797,6 +797,48 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(level_up_card, parse_mode="HTML")
 
 
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin-only command to view usage and payment statistics."""
+    user = update.effective_user
+    if not config.ADMIN_TELEGRAM_ID or str(user.id) != str(config.ADMIN_TELEGRAM_ID):
+        await update.message.reply_text("❌ You do not have permission to view stats.")
+        return
+        
+    try:
+        stats = database.get_admin_stats()
+        
+        conversion_rate = 0.0
+        if stats["total_users"] > 0:
+            conversion_rate = (stats["paying_users"] / stats["total_users"]) * 100.0
+            
+        recent_text = ""
+        if stats["recent_payments"]:
+            recent_text = "\n📈 <b>Recent Payments:</b>\n"
+            for p in stats["recent_payments"]:
+                username_str = f"@{p['username']}" if p['username'] else f"ID: {p['telegram_id']}"
+                first_name_str = p['first_name'] if p['first_name'] else "User"
+                recent_text += (
+                    f"• {p['created_at'][:19]} - {first_name_str} ({username_str}) paid "
+                    f"<b>₹{p['amount_inr']:.2f}</b> for <code>{p['item_type']}</code>\n"
+                )
+        else:
+            recent_text = "\n<i>No payments recorded yet.</i>\n"
+            
+        stats_card = (
+            f"📊 <b>Karin AI - Admin Statistics</b>\n\n"
+            f"👥 <b>Total Users trying bot:</b> {stats['total_users']}\n"
+            f"💳 <b>Total Paying Users:</b> {stats['paying_users']}\n"
+            f"💰 <b>Total Payments count:</b> {stats['total_payments']}\n"
+            f"💵 <b>Total Revenue:</b> ₹{stats['total_revenue_inr']:.2f} INR\n"
+            f"🔄 <b>Conversion Rate:</b> {conversion_rate:.2f}%\n"
+            f"{recent_text}"
+        )
+        await update.message.reply_text(stats_card, parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"Error fetching stats: {e}")
+        await update.message.reply_text(f"❌ Failed to retrieve stats: {e}")
+
+
 # --- Main Application Boot ---
 
 async def post_init(application: Application):
@@ -828,6 +870,7 @@ def main():
     application.add_handler(CommandHandler("image", draw_command))
     application.add_handler(CommandHandler("reset", reset_command))
     application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("stats", stats_command))
     
     # Add Inline Button Handler
     application.add_handler(CallbackQueryHandler(handle_callback_query))

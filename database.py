@@ -74,6 +74,20 @@ def init_db():
         )
     """)
     
+    # Payments info per user
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS payments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            telegram_id INTEGER,
+            payment_id TEXT UNIQUE,
+            order_id TEXT,
+            amount INTEGER, -- in paise
+            item_type TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(telegram_id) REFERENCES users(telegram_id)
+        )
+    """)
+
     # Run migration to add seed column to user_settings if not exists
     try:
         cursor.execute("ALTER TABLE user_settings ADD COLUMN seed INTEGER DEFAULT NULL")
@@ -419,3 +433,75 @@ def use_image_credit(telegram_id):
     conn.commit()
     conn.close()
     return True
+
+
+def log_payment(telegram_id, payment_id, order_id, amount, item_type):
+    """Logs a successful payment transaction."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT OR IGNORE INTO payments (telegram_id, payment_id, order_id, amount, item_type)
+            VALUES (?, ?, ?, ?, ?)
+        """, (telegram_id, payment_id, order_id, amount, item_type))
+        conn.commit()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Error logging payment in DB: {e}")
+    finally:
+        conn.close()
+
+
+def get_admin_stats():
+    """Retrieves general statistics for the admin dashboard."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # 1. Total users
+    cursor.execute("SELECT count(*) as count FROM users")
+    total_users = cursor.fetchone()["count"]
+    
+    # 2. Total paying users (distinct users in payments table)
+    cursor.execute("SELECT count(distinct telegram_id) as count FROM payments")
+    paying_users = cursor.fetchone()["count"]
+    
+    # 3. Total payments count
+    cursor.execute("SELECT count(*) as count FROM payments")
+    total_payments = cursor.fetchone()["count"]
+    
+    # 4. Total revenue in INR (Razorpay amount is in paise)
+    cursor.execute("SELECT sum(amount) as total FROM payments")
+    total_revenue_paise = cursor.fetchone()["total"]
+    total_revenue_inr = (total_revenue_paise / 100.0) if total_revenue_paise else 0.0
+    
+    # 5. Recent payments (last 5)
+    cursor.execute("""
+        SELECT p.payment_id, p.amount, p.item_type, p.created_at, u.username, u.first_name, p.telegram_id
+        FROM payments p
+        LEFT JOIN users u ON p.telegram_id = u.telegram_id
+        ORDER BY p.created_at DESC
+        LIMIT 5
+    """)
+    recent_rows = cursor.fetchall()
+    recent_payments = []
+    for r in recent_rows:
+        recent_payments.append({
+            "payment_id": r["payment_id"],
+            "amount_inr": r["amount"] / 100.0,
+            "item_type": r["item_type"],
+            "created_at": r["created_at"],
+            "username": r["username"],
+            "first_name": r["first_name"],
+            "telegram_id": r["telegram_id"]
+        })
+        
+    conn.close()
+    
+    return {
+        "total_users": total_users,
+        "paying_users": paying_users,
+        "total_payments": total_payments,
+        "total_revenue_inr": total_revenue_inr,
+        "recent_payments": recent_payments
+    }
+

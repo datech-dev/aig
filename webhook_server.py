@@ -62,6 +62,14 @@ async def handle_razorpay_webhook(request):
             
         try:
             user_id = int(user_id_str)
+            # Log successful payment link payment
+            database.log_payment(
+                telegram_id=user_id,
+                payment_id=plink.get("id"),
+                order_id=None,
+                amount=plink.get("amount", 0),
+                item_type=item_type
+            )
         except ValueError:
             logger.error(f"Invalid user_id in notes: {user_id_str}")
             return web.Response(text="Invalid user_id", status=200)
@@ -251,6 +259,14 @@ async def handle_verify_payment(request):
             })
             
         user_id = int(user_id_str)
+        # Log successful standard checkout payment
+        database.log_payment(
+            telegram_id=user_id,
+            payment_id=payment_id,
+            order_id=order_id,
+            amount=order.get("amount", 0),
+            item_type=item_type
+        )
         tg_app = request.app.get('tg_app')
         
         if item_type == "chat_pass":
