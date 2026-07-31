@@ -121,7 +121,7 @@ class TestGirlfriendApp(unittest.TestCase):
         billing = database.get_user_billing(test_id)
         self.assertIsNotNone(billing)
         self.assertEqual(billing["free_messages_used"], 0)
-        self.assertEqual(billing["image_credits"], 0)
+        self.assertEqual(billing["image_credits"], 2)
         self.assertIsNone(billing["chat_expires_at"])
         
         # Chat subscription is initially False
@@ -140,16 +140,16 @@ class TestGirlfriendApp(unittest.TestCase):
         # Grant image credits
         database.grant_image_credits(test_id, amount=10)
         billing = database.get_user_billing(test_id)
-        self.assertEqual(billing["image_credits"], 10)
+        self.assertEqual(billing["image_credits"], 12)
         
         # Deduct image credit
         success = database.use_image_credit(test_id)
         self.assertTrue(success)
         billing = database.get_user_billing(test_id)
-        self.assertEqual(billing["image_credits"], 9)
+        self.assertEqual(billing["image_credits"], 11)
         
         # Deduct all remaining credits to test boundary
-        for _ in range(9):
+        for _ in range(11):
             database.use_image_credit(test_id)
         billing = database.get_user_billing(test_id)
         self.assertEqual(billing["image_credits"], 0)

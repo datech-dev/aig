@@ -1,7 +1,7 @@
 import sqlite3
 import os
 from datetime import datetime, timedelta
-from config import PERSONAS, get_relationship_status
+from config import PERSONAS, get_relationship_status, INITIAL_IMAGE_CREDITS
 
 DB_PATH = "girlfriend.db"
 
@@ -69,7 +69,7 @@ def init_db():
             telegram_id INTEGER PRIMARY KEY,
             free_messages_used INTEGER DEFAULT 0,
             chat_expires_at TIMESTAMP DEFAULT NULL,
-            image_credits INTEGER DEFAULT 0,
+            image_credits INTEGER DEFAULT 2,
             FOREIGN KEY(telegram_id) REFERENCES users(telegram_id)
         )
     """)
@@ -133,8 +133,8 @@ def setup_user(telegram_id, username, first_name):
     # Initialize user billing if not exists
     cursor.execute("""
         INSERT OR IGNORE INTO user_billing (telegram_id, free_messages_used, chat_expires_at, image_credits)
-        VALUES (?, 0, NULL, 0)
-    """, (telegram_id,))
+        VALUES (?, 0, NULL, ?)
+    """, (telegram_id, INITIAL_IMAGE_CREDITS))
     
     # Initialize settings/profiles for ALL default personas separately
     import random
@@ -337,8 +337,8 @@ def get_user_billing(telegram_id):
     cursor = conn.cursor()
     cursor.execute("""
         INSERT OR IGNORE INTO user_billing (telegram_id, free_messages_used, chat_expires_at, image_credits)
-        VALUES (?, 0, NULL, 0)
-    """, (telegram_id,))
+        VALUES (?, 0, NULL, ?)
+    """, (telegram_id, INITIAL_IMAGE_CREDITS))
     conn.commit()
     cursor.execute("SELECT * FROM user_billing WHERE telegram_id = ?", (telegram_id,))
     row = cursor.fetchone()
