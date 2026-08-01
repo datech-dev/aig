@@ -339,10 +339,10 @@ async def handle_get_config(request):
     Returns the public Razorpay Key ID and the Telegram bot username.
     """
     tg_app = request.app.get('tg_app')
-    bot_username = "KarinAIGirlfriendBot"
+    bot_username = "zetagirl_bot"
     if tg_app and tg_app.bot:
         try:
-            bot_username = tg_app.bot.username or "KarinAIGirlfriendBot"
+            bot_username = tg_app.bot.username or "zetagirl_bot"
         except Exception:
             pass
     return web.json_response({
