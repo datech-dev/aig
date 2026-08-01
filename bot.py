@@ -745,14 +745,14 @@ def choose_gif(query: str, telegram_id: int, persona_key: str, user_text: str = 
     if not gif_descriptions:
         return None
         
-    # Check relationship level to restrict NSFW/explicit GIFs
-    level = 1
+    # Check relationship XP to restrict NSFW/explicit GIFs (unlocks after 25 messages / 250 XP)
+    xp = 0
     try:
         settings = database.get_user_settings(telegram_id)
         if settings:
-            level = settings.get("relationship_level", 1)
+            xp = settings.get("relationship_xp", 0)
     except Exception as e:
-        logger.error(f"Error fetching relationship level in choose_gif: {e}")
+        logger.error(f"Error fetching relationship XP in choose_gif: {e}")
         
     def is_nsfw(name: str) -> bool:
         nsfw_keywords = ["boob", "nipple", "nude", "hentai", "fingering", "naked", "breast", "teasing"]
@@ -780,8 +780,8 @@ def choose_gif(query: str, telegram_id: int, persona_key: str, user_text: str = 
     # Calculate match scores for all GIFs
     candidates = []
     for gif_name, description in gif_descriptions.items():
-        # Restrict explicit GIFs to Level 5+ (Sweethearts / Soulmates)
-        if level < 5 and is_nsfw(gif_name):
+        # Restrict explicit GIFs to 25+ messages (250+ XP)
+        if xp < 250 and is_nsfw(gif_name):
             continue
             
         gif_words = set(re.split(r'[-_]', gif_name.lower()))
@@ -820,7 +820,7 @@ def choose_gif(query: str, telegram_id: int, persona_key: str, user_text: str = 
         if query:
             query_clean = query.lower().strip()
             for gif_name in gif_descriptions.keys():
-                if level < 5 and is_nsfw(gif_name):
+                if xp < 250 and is_nsfw(gif_name):
                     continue
                 if query_clean in gif_name.lower() or gif_name.lower() in query_clean:
                     candidates.append((gif_name, 1.0))

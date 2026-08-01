@@ -217,6 +217,12 @@ def construct_system_prompt(persona_key, relationship_xp, user_nickname=None, ai
         rel_status
     ]
     
+    if relationship_xp < 250:
+        system_prompt.append(
+            "\n### Early Relationship Constraints:\n"
+            "- You are in the early stages of your relationship. Be warm, friendly, flirty, and playful, but do NOT engage in explicit sexual talk, sexting, or highly suggestive/intimate physical actions yet. Keep it light and teasing."
+        )
+    
     # Custom Nicknames
     u_nick = user_nickname if user_nickname else "User"
     ai_nick = ai_nickname if ai_nickname else persona["name"]

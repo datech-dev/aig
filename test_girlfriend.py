@@ -392,7 +392,7 @@ class TestGirlfriendApp(unittest.TestCase):
 
     @patch("config.get_gif_descriptions")
     def test_14_nsfw_gif_filtering(self, mock_get_descs):
-        """Verify that NSFW/explicit GIFs are blocked for users below level 5, but allowed at level 5+."""
+        """Verify that NSFW/explicit GIFs are blocked for users with less than 250 XP (25 messages), but allowed at 250+ XP."""
         mock_get_descs.return_value = {
             "normal_kiss": "karin kissing cheek",
             "boobs_touching": "karin touching her boobs",
@@ -401,7 +401,7 @@ class TestGirlfriendApp(unittest.TestCase):
         test_id = 99996666
         database.setup_user(test_id, "nsfw_user", "NsfwUser")
         
-        # Level 1: "boobs_touching" contains "boobs" (starts with "boob") and should be filtered.
+        # XP = 0: "boobs_touching" should be filtered.
         import bot
         matched_l1 = bot.choose_gif("touching", test_id, "karin")
         self.assertIsNone(matched_l1) # "boobs_touching" is filtered out
@@ -409,14 +409,18 @@ class TestGirlfriendApp(unittest.TestCase):
         matched_l1_safe = bot.choose_gif("kiss", test_id, "karin")
         self.assertEqual(matched_l1_safe, "normal_kiss") # Safe GIF works
         
-        # Upgrade user to Level 5 (XP needed: 1000)
-        database.add_xp(test_id, amount=1000)
-        settings = database.get_user_settings(test_id)
-        self.assertEqual(settings["relationship_level"], 5)
+        # Upgrade user to 240 XP (24 messages) - still filtered
+        database.add_xp(test_id, amount=240)
+        matched_l24 = bot.choose_gif("touching", test_id, "karin")
+        self.assertIsNone(matched_l24)
         
-        # Level 5: NSFW GIF should now match
-        matched_l5 = bot.choose_gif("touching", test_id, "karin")
-        self.assertEqual(matched_l5, "boobs_touching")
+        # Upgrade user to 250 XP (25 messages) - allowed!
+        database.add_xp(test_id, amount=10)
+        settings = database.get_user_settings(test_id)
+        self.assertEqual(settings["relationship_xp"], 250)
+        
+        matched_l25 = bot.choose_gif("touching", test_id, "karin")
+        self.assertEqual(matched_l25, "boobs_touching")
 
 if __name__ == "__main__":
     unittest.main()
