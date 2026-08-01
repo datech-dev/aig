@@ -390,5 +390,33 @@ class TestGirlfriendApp(unittest.TestCase):
         self.assertEqual(len(history_drive), 1)
         self.assertEqual(history_drive[0]["content"], "Hello driver Karin")
 
+    @patch("config.get_gif_descriptions")
+    def test_14_nsfw_gif_filtering(self, mock_get_descs):
+        """Verify that NSFW/explicit GIFs are blocked for users below level 5, but allowed at level 5+."""
+        mock_get_descs.return_value = {
+            "normal_kiss": "karin kissing cheek",
+            "boobs_touching": "karin touching her boobs",
+        }
+        
+        test_id = 99996666
+        database.setup_user(test_id, "nsfw_user", "NsfwUser")
+        
+        # Level 1: "boobs_touching" contains "boobs" (starts with "boob") and should be filtered.
+        import bot
+        matched_l1 = bot.choose_gif("touching", test_id, "karin")
+        self.assertIsNone(matched_l1) # "boobs_touching" is filtered out
+        
+        matched_l1_safe = bot.choose_gif("kiss", test_id, "karin")
+        self.assertEqual(matched_l1_safe, "normal_kiss") # Safe GIF works
+        
+        # Upgrade user to Level 5 (XP needed: 1000)
+        database.add_xp(test_id, amount=1000)
+        settings = database.get_user_settings(test_id)
+        self.assertEqual(settings["relationship_level"], 5)
+        
+        # Level 5: NSFW GIF should now match
+        matched_l5 = bot.choose_gif("touching", test_id, "karin")
+        self.assertEqual(matched_l5, "boobs_touching")
+
 if __name__ == "__main__":
     unittest.main()

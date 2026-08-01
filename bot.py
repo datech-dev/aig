@@ -745,6 +745,20 @@ def choose_gif(query: str, telegram_id: int, persona_key: str, user_text: str = 
     if not gif_descriptions:
         return None
         
+    # Check relationship level to restrict NSFW/explicit GIFs
+    level = 1
+    try:
+        settings = database.get_user_settings(telegram_id)
+        if settings:
+            level = settings.get("relationship_level", 1)
+    except Exception as e:
+        logger.error(f"Error fetching relationship level in choose_gif: {e}")
+        
+    def is_nsfw(name: str) -> bool:
+        nsfw_keywords = ["boob", "nipple", "nude", "hentai", "fingering", "naked", "breast", "teasing"]
+        name_lower = name.lower()
+        return any(k in name_lower for k in nsfw_keywords)
+
     import re
     # Tokenize input texts
     stop_words = {"the", "a", "an", "and", "or", "but", "if", "then", "of", "to", "in", "on", "at", "for", "with", "is", "was", "are", "karin", "user"}
@@ -766,6 +780,10 @@ def choose_gif(query: str, telegram_id: int, persona_key: str, user_text: str = 
     # Calculate match scores for all GIFs
     candidates = []
     for gif_name, description in gif_descriptions.items():
+        # Restrict explicit GIFs to Level 5+ (Sweethearts / Soulmates)
+        if level < 5 and is_nsfw(gif_name):
+            continue
+            
         gif_words = set(re.split(r'[-_]', gif_name.lower()))
         desc_words = set(re.findall(r'\b\w+\b', description.lower()))
         target_words = gif_words.union(desc_words) - stop_words
@@ -802,6 +820,8 @@ def choose_gif(query: str, telegram_id: int, persona_key: str, user_text: str = 
         if query:
             query_clean = query.lower().strip()
             for gif_name in gif_descriptions.keys():
+                if level < 5 and is_nsfw(gif_name):
+                    continue
                 if query_clean in gif_name.lower() or gif_name.lower() in query_clean:
                     candidates.append((gif_name, 1.0))
         
