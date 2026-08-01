@@ -151,6 +151,44 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(profile_text, reply_markup=reply_markup, parse_mode="HTML")
 
 
+async def roleplay_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Displays a menu of available roleplays for Karin."""
+    user = update.effective_user
+    database.setup_user(user.id, user.username, user.first_name)
+    
+    settings = database.get_user_settings(user.id)
+    active_persona = settings["active_persona"] if settings else "karin"
+    
+    menu_text = (
+        "🎭 <b>KARIN ROLEPLAY MANAGER</b> 🎭\n\n"
+        "Switch Karin's scenario to explore different stories and intimacy settings. "
+        "Each roleplay has its own <b>independent chat history</b> so the scenarios don't get mixed up, "
+        "but your <b>relationship XP/level & custom nicknames are shared</b>!\n\n"
+        "<b>Current Active Mode:</b>\n"
+        f"👉 <b>{config.PERSONAS[active_persona]['name']}</b> - <i>{config.PERSONAS[active_persona]['tagline']}</i>\n\n"
+        "Select a scenario to start:"
+    )
+    
+    keyboard = []
+    for p_key, p_info in config.PERSONAS.items():
+        icon = "💬"
+        if "drive" in p_key:
+            icon = "🚗"
+        elif "cottage" in p_key:
+            icon = "🌲"
+        elif "home" in p_key:
+            icon = "🏠"
+            
+        btn_text = f"{icon} {p_info['name']}"
+        if p_key == active_persona:
+            btn_text += " (Active)"
+            
+        keyboard.append([InlineKeyboardButton(btn_text, callback_data=f"set_roleplay_{p_key}")])
+        
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text(menu_text, reply_markup=reply_markup, parse_mode="HTML")
+
+
 async def draw_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Generates an image of Karin using Venice.ai's 'lustify-v7' model if credits are available."""
     user = update.effective_user
@@ -215,15 +253,19 @@ async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     database.setup_user(user.id, user.username, user.first_name)
     
+    settings = database.get_user_settings(user.id)
+    active_persona = settings["active_persona"] if settings else "karin"
+    persona = config.PERSONAS.get(active_persona, config.PERSONAS["karin"])
+    
     keyboard = [
         [
-            InlineKeyboardButton("❌ Yes, Reset History", callback_data="confirm_reset_karin"),
+            InlineKeyboardButton("❌ Yes, Reset History", callback_data=f"confirm_reset_{active_persona}"),
             InlineKeyboardButton("🔙 Cancel", callback_data="profile_back")
         ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text(
-        f"⚠️ Are you sure you want to clear your chat history with <b>Karin</b>?\n"
+        f"⚠️ Are you sure you want to clear your chat history with <b>{persona['name']}</b>?\n"
         f"This cannot be undone, but your relationship level/XP will remain intact.",
         reply_markup=reply_markup,
         parse_mode="HTML"
@@ -237,6 +279,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Here are the commands you can use to control the bot:\n"
         "• /start - Greet Karin and begin chatting.\n"
         "• /profile - Check relationship level, XP, and nicknames.\n"
+        "• /roleplay - Switch Karin's roleplay scenario (e.g. Long Drive, Forest Cottage, Alone at Home).\n"
         "• /draw &lt;prompt&gt; - Generate custom images of Karin using Venice lustify-v7.\n"
         "• /reset - Clear conversation history with Karin.\n"
         "• /help - Display this help text.\n\n"
@@ -260,6 +303,29 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     # Ensure user exists in database
     database.setup_user(user_id, query.from_user.username, query.from_user.first_name)
     
+    # Roleplay selection handler
+    if data.startswith("set_roleplay_"):
+        roleplay_key = data[len("set_roleplay_"):]
+        if roleplay_key in config.PERSONAS:
+            database.setup_user(user_id, query.from_user.username, query.from_user.first_name)
+            database.update_active_persona(user_id, roleplay_key)
+            persona = config.PERSONAS[roleplay_key]
+            
+            welcome_text = persona.get("welcome_msg", "Hey baby! Let's chat. 🥰")
+            
+            # If empty history, prepopulate with welcome message so context is set
+            history = database.get_chat_history(user_id, roleplay_key)
+            if not history:
+                database.add_chat_message(user_id, roleplay_key, "assistant", welcome_text)
+                
+            transition_text = (
+                f"🎭 <b>Roleplay Scenario Switched!</b>\n"
+                f"🌟 <b>{persona['name']}</b> ({persona['tagline']})\n\n"
+                f"💬 <b>Karin:</b> {welcome_text}"
+            )
+            await query.message.edit_text(transition_text, parse_mode="HTML")
+        return
+        
     # 0. Onboarding Orientation Selection Triggers
     if data in ["set_orientation_straight", "set_orientation_lesbian"]:
         orientation = "straight" if data == "set_orientation_straight" else "lesbian"
@@ -348,25 +414,34 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         
     # 3. Profile Menu: Reset History Prompt
     elif data == "menu_reset_history":
+        settings = database.get_user_settings(user_id)
+        active_persona = settings["active_persona"] if settings else "karin"
+        persona = config.PERSONAS.get(active_persona, config.PERSONAS["karin"])
         keyboard = [
             [
-                InlineKeyboardButton("❌ Yes, Clear History", callback_data="confirm_reset_karin"),
+                InlineKeyboardButton("❌ Yes, Clear History", callback_data=f"confirm_reset_{active_persona}"),
                 InlineKeyboardButton("🔙 Cancel", callback_data="profile_back")
             ]
         ]
         await query.message.edit_text(
-            f"⚠️ Are you sure you want to clear your chat history with <b>Karin</b>?\n"
+            f"⚠️ Are you sure you want to clear your chat history with <b>{persona['name']}</b>?\n"
             f"This cannot be undone, but your relationship level/XP will remain intact.",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="HTML"
         )
         
-    # 4. Confirm Reset
-    elif data == "confirm_reset_karin":
-        database.clear_chat_history(user_id, "karin")
+    # 4. Confirm Reset (Dynamic)
+    elif data.startswith("confirm_reset_"):
+        persona_key = data[len("confirm_reset_"):]
+        database.clear_chat_history(user_id, persona_key)
         
+        persona = config.PERSONAS.get(persona_key)
+        if persona and "welcome_msg" in persona:
+            database.add_chat_message(user_id, persona_key, "assistant", persona["welcome_msg"])
+            
+        persona_name = persona.get("name", "Karin") if persona else "Karin"
         await query.message.edit_text(
-            f"🔄 Chat history with <b>Karin</b> has been successfully cleared!",
+            f"🔄 Chat history with <b>{persona_name}</b> has been successfully cleared!",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Profile", callback_data="profile_back")]]),
             parse_mode="HTML"
         )
@@ -1025,6 +1100,8 @@ def main():
     # Add Command Handlers
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("profile", profile_command))
+    application.add_handler(CommandHandler("roleplay", roleplay_command))
+    application.add_handler(CommandHandler("mode", roleplay_command))
     application.add_handler(CommandHandler("draw", draw_command))
     application.add_handler(CommandHandler("image", draw_command))
     application.add_handler(CommandHandler("reset", reset_command))

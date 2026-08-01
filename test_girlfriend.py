@@ -340,5 +340,55 @@ class TestGirlfriendApp(unittest.TestCase):
         self.assertNotIn("You are his loving, sweet girlfriend", system_prompt)
         self.assertIn("with her.", system_prompt)
 
+    def test_13_roleplay_and_sync(self):
+        """Verify roleplay switching, history isolation, and sync of XP and nicknames."""
+        test_id = 99995555
+        database.setup_user(test_id, "rp_user", "RPUser")
+        
+        # Verify initial active persona is 'karin'
+        active = database.get_active_persona_key(test_id)
+        self.assertEqual(active, "karin")
+        
+        # Add some XP to 'karin'
+        database.add_xp(test_id, amount=100)
+        settings_karin = database.get_user_settings(test_id)
+        self.assertEqual(settings_karin["relationship_xp"], 100)
+        
+        # Verify settings sync to other Karin sub-personas (e.g. 'karin_long_drive')
+        database.update_active_persona(test_id, "karin_long_drive")
+        settings_drive = database.get_user_settings(test_id)
+        self.assertEqual(settings_drive["relationship_xp"], 100)
+        self.assertEqual(settings_drive["user_nickname"], "RPUser")
+        
+        # Update nickname on 'karin_long_drive'
+        database.update_nicknames(test_id, user_nickname="Darling", ai_nickname="Karin Baby")
+        
+        # Verify nickname sync back to 'karin'
+        database.update_active_persona(test_id, "karin")
+        settings_karin_new = database.get_user_settings(test_id)
+        self.assertEqual(settings_karin_new["user_nickname"], "Darling")
+        self.assertEqual(settings_karin_new["ai_nickname"], "Karin Baby")
+        
+        # Verify user orientation sync
+        database.update_user_orientation(test_id, "lesbian")
+        settings_lesbian = database.get_user_settings(test_id)
+        self.assertEqual(settings_lesbian["user_orientation"], "lesbian")
+        
+        database.update_active_persona(test_id, "karin_long_drive")
+        settings_drive_lesbian = database.get_user_settings(test_id)
+        self.assertEqual(settings_drive_lesbian["user_orientation"], "lesbian")
+        
+        # Verify chat history isolation
+        database.add_chat_message(test_id, "karin", "user", "Hello techie Karin")
+        database.add_chat_message(test_id, "karin_long_drive", "user", "Hello driver Karin")
+        
+        history_karin = database.get_chat_history(test_id, "karin")
+        history_drive = database.get_chat_history(test_id, "karin_long_drive")
+        
+        self.assertEqual(len(history_karin), 1)
+        self.assertEqual(history_karin[0]["content"], "Hello techie Karin")
+        self.assertEqual(len(history_drive), 1)
+        self.assertEqual(history_drive[0]["content"], "Hello driver Karin")
+
 if __name__ == "__main__":
     unittest.main()

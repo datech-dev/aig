@@ -215,29 +215,35 @@ def update_active_persona(telegram_id, persona_key):
 
 
 def update_nicknames(telegram_id, user_nickname=None, ai_nickname=None):
-    """Updates custom nicknames specifically for the user's active companion."""
+    """Updates custom nicknames for all Karin personas to keep them synchronized."""
     active_persona = get_active_persona_key(telegram_id)
     
     conn = get_connection()
     cursor = conn.cursor()
-    if user_nickname is not None:
-        cursor.execute("""
-            UPDATE user_settings 
-            SET user_nickname = ? 
-            WHERE telegram_id = ? AND persona_key = ?
-        """, (user_nickname, telegram_id, active_persona))
-    if ai_nickname is not None:
-        cursor.execute("""
-            UPDATE user_settings 
-            SET ai_nickname = ? 
-            WHERE telegram_id = ? AND persona_key = ?
-        """, (ai_nickname, telegram_id, active_persona))
+    
+    target_personas = [active_persona]
+    if active_persona.startswith("karin"):
+        target_personas = [p for p in PERSONAS.keys() if p.startswith("karin")]
+        
+    for p_key in target_personas:
+        if user_nickname is not None:
+            cursor.execute("""
+                UPDATE user_settings 
+                SET user_nickname = ? 
+                WHERE telegram_id = ? AND persona_key = ?
+            """, (user_nickname, telegram_id, p_key))
+        if ai_nickname is not None:
+            cursor.execute("""
+                UPDATE user_settings 
+                SET ai_nickname = ? 
+                WHERE telegram_id = ? AND persona_key = ?
+            """, (ai_nickname, telegram_id, p_key))
     conn.commit()
     conn.close()
 
 
 def add_xp(telegram_id, amount=10):
-    """Adds relationship XP to the user's active companion. Returns (leveled_up: bool, new_level: int, new_title: str)."""
+    """Adds relationship XP to the user's active companion, synchronizing it across all Karin personas."""
     active_persona = get_active_persona_key(telegram_id)
     
     conn = get_connection()
@@ -264,12 +270,17 @@ def add_xp(telegram_id, amount=10):
     
     leveled_up = new_level > old_level
     
-    cursor.execute("""
-        UPDATE user_settings
-        SET relationship_xp = ?, relationship_level = ?
-        WHERE telegram_id = ? AND persona_key = ?
-    """, (new_xp, new_level, telegram_id, active_persona))
-    
+    target_personas = [active_persona]
+    if active_persona.startswith("karin"):
+        target_personas = [p for p in PERSONAS.keys() if p.startswith("karin")]
+        
+    for p_key in target_personas:
+        cursor.execute("""
+            UPDATE user_settings
+            SET relationship_xp = ?, relationship_level = ?
+            WHERE telegram_id = ? AND persona_key = ?
+        """, (new_xp, new_level, telegram_id, p_key))
+        
     conn.commit()
     conn.close()
     
@@ -555,15 +566,21 @@ def add_user_recent_gif(telegram_id, persona_key, gif_name):
 
 
 def update_user_orientation(telegram_id, orientation):
-    """Updates custom user orientation settings."""
+    """Updates custom user orientation settings for all Karin personas to keep them synchronized."""
     active_persona = get_active_persona_key(telegram_id)
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("""
-        UPDATE user_settings 
-        SET user_orientation = ?
-        WHERE telegram_id = ? AND persona_key = ?
-    """, (orientation, telegram_id, active_persona))
+    
+    target_personas = [active_persona]
+    if active_persona.startswith("karin"):
+        target_personas = [p for p in PERSONAS.keys() if p.startswith("karin")]
+        
+    for p_key in target_personas:
+        cursor.execute("""
+            UPDATE user_settings 
+            SET user_orientation = ?
+            WHERE telegram_id = ? AND persona_key = ?
+        """, (orientation, telegram_id, p_key))
     conn.commit()
     conn.close()
 
