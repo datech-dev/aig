@@ -336,10 +336,18 @@ async def handle_verify_payment(request):
 
 async def handle_get_config(request):
     """
-    Returns the public Razorpay Key ID.
+    Returns the public Razorpay Key ID and the Telegram bot username.
     """
+    tg_app = request.app.get('tg_app')
+    bot_username = "KarinAIGirlfriendBot"
+    if tg_app and tg_app.bot:
+        try:
+            bot_username = tg_app.bot.username or "KarinAIGirlfriendBot"
+        except Exception:
+            pass
     return web.json_response({
-        "razorpay_key_id": config.RAZORPAY_KEY_ID
+        "razorpay_key_id": config.RAZORPAY_KEY_ID,
+        "bot_username": bot_username
     })
 
 async def start_webhook_server(application, port=8080):
