@@ -975,8 +975,8 @@
                                         <div class="card-left">
                                             <div class="product-radio"></div>
                                             <div class="product-info">
-                                                <span class="product-name">3-Hour Chat Pass</span>
-                                                <span class="product-desc">Unlimited chatting for 3 hours</span>
+                                                <span class="product-name">1-Day Chat Pass</span>
+                                                <span class="product-desc">Unlimited chatting for 1 day (24 hours)</span>
                                             </div>
                                         </div>
                                         <span class="product-price">₹50</span>
@@ -1023,11 +1023,11 @@
                             </div>
                             <div class="details-row">
                                 <span class="details-label">Item Purchased</span>
-                                <span class="details-val" id="val-item">3-Hour Chat Pass</span>
+                                <span class="details-val" id="val-item">1-Day Chat Pass</span>
                             </div>
                             <div class="details-row">
                                 <span class="details-label">Details</span>
-                                <span class="details-val" id="val-details">Expires in 3 hours</span>
+                                <span class="details-val" id="val-details">Expires in 1 day (24 hours)</span>
                             </div>
                         </div>
 
@@ -1219,7 +1219,7 @@
                 amount: orderData.amount,
                 currency: orderData.currency,
                 name: "Karin AI Companion",
-                description: selectedProduct === 'chat_pass' ? "3-Hour Unlimited Chat Pass" : "10 Premium Image Credits",
+                description: selectedProduct === 'chat_pass' ? "1-Day Unlimited Chat Pass" : "10 Premium Image Credits",
                 order_id: orderData.order_id,
                 prefill: {
                     name: `User ID: ${telegramId}`
@@ -1254,7 +1254,7 @@
                         
                         document.getElementById('val-order-id').innerText = paymentResponse.razorpay_order_id;
                         document.getElementById('val-payment-id').innerText = paymentResponse.razorpay_payment_id;
-                        document.getElementById('val-item').innerText = selectedProduct === 'chat_pass' ? "3-Hour Chat Pass" : "10 Image Credits";
+                        document.getElementById('val-item').innerText = selectedProduct === 'chat_pass' ? "1-Day Chat Pass" : "10 Image Credits";
                         document.getElementById('val-details').innerText = result.details || "Activated successfully";
                         
                         document.getElementById('success-panel').classList.remove('hidden');

@@ -132,8 +132,8 @@ class TestGirlfriendApp(unittest.TestCase):
         billing = database.get_user_billing(test_id)
         self.assertEqual(billing["free_messages_used"], 1)
         
-        # Grant chat pass
-        expiry = database.grant_chat_pass(test_id, hours=3)
+        # Grant chat pass (1 day / 24 hours)
+        expiry = database.grant_chat_pass(test_id, hours=config.CHAT_PASS_DURATION_HOURS)
         self.assertIsNotNone(expiry)
         self.assertTrue(database.is_chat_subscribed(test_id))
         
@@ -421,6 +421,45 @@ class TestGirlfriendApp(unittest.TestCase):
         
         matched_l25 = bot.choose_gif("touching", test_id, "karin")
         self.assertEqual(matched_l25, "boobs_touching")
+
+    def test_15_user_tracking_and_payment_intents(self):
+        """Verify tracking of users trying the app and tracking of users who click Pay 50 and leave after generating link."""
+        u1_id = 11110001
+        u2_id = 11110002
+        
+        database.setup_user(u1_id, "trying_user1", "User1")
+        database.setup_user(u2_id, "trying_user2", "User2")
+        
+        # Verify trying users list contains these users
+        trying = database.get_trying_users()
+        user_ids = [u["telegram_id"] for u in trying]
+        self.assertIn(u1_id, user_ids)
+        self.assertIn(u2_id, user_ids)
+        
+        # User 1 clicks Pay 50 (generates payment link plink_1001)
+        database.log_payment_intent(u1_id, "chat_pass", 5000, "plink_1001")
+        
+        # User 2 clicks Pay 50 (generates payment link plink_1002)
+        database.log_payment_intent(u2_id, "image_credits", 5000, "plink_1002")
+        
+        # Check abandoned checkout list (both users generated link and left)
+        abandoned = database.get_abandoned_payment_link_users()
+        abandoned_link_ids = [ab["payment_link_id"] for ab in abandoned]
+        self.assertIn("plink_1001", abandoned_link_ids)
+        self.assertIn("plink_1002", abandoned_link_ids)
+        
+        # User 1 returns and completes payment
+        database.log_payment(u1_id, "pay_1001", "order_1001", 5000, "chat_pass")
+        
+        # Now plink_1001 should be marked completed and removed from abandoned list, while plink_1002 remains abandoned
+        abandoned_after = database.get_abandoned_payment_link_users()
+        remaining_link_ids = [ab["payment_link_id"] for ab in abandoned_after]
+        self.assertNotIn("plink_1001", remaining_link_ids)
+        self.assertIn("plink_1002", remaining_link_ids)
+        
+        # Verify admin stats reflect abandoned checkouts count
+        stats = database.get_admin_stats()
+        self.assertGreaterEqual(stats["abandoned_checkouts_count"], 1)
 
 if __name__ == "__main__":
     unittest.main()

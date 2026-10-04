@@ -88,6 +88,21 @@ def init_db():
         )
     """)
 
+    # Tracking table for users clicking 'Pay 50' (payment link generated / checkout initiated)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS payment_intents (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            telegram_id INTEGER,
+            item_type TEXT,
+            amount INTEGER DEFAULT 5000,
+            payment_link_id TEXT,
+            status TEXT DEFAULT 'initiated', -- 'initiated' (generated/left), 'completed' (paid)
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(telegram_id) REFERENCES users(telegram_id)
+        )
+    """)
+
     # Run migration to add seed column to user_settings if not exists
     try:
         cursor.execute("ALTER TABLE user_settings ADD COLUMN seed INTEGER DEFAULT NULL")
@@ -103,6 +118,12 @@ def init_db():
     # Run migration to add user_orientation column to user_settings if not exists
     try:
         cursor.execute("ALTER TABLE user_settings ADD COLUMN user_orientation TEXT DEFAULT 'straight'")
+    except sqlite3.OperationalError:
+        pass
+
+    # Run migration to add last_free_message_reset column to user_billing if not exists
+    try:
+        cursor.execute("ALTER TABLE user_billing ADD COLUMN last_free_message_reset TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
     except sqlite3.OperationalError:
         pass
         
@@ -131,10 +152,11 @@ def setup_user(telegram_id, username, first_name):
     """, (telegram_id,))
 
     # Initialize user billing if not exists
+    now_str = datetime.utcnow().isoformat()
     cursor.execute("""
-        INSERT OR IGNORE INTO user_billing (telegram_id, free_messages_used, chat_expires_at, image_credits)
-        VALUES (?, 0, NULL, ?)
-    """, (telegram_id, INITIAL_IMAGE_CREDITS))
+        INSERT OR IGNORE INTO user_billing (telegram_id, free_messages_used, chat_expires_at, image_credits, last_free_message_reset)
+        VALUES (?, 0, NULL, ?, ?)
+    """, (telegram_id, INITIAL_IMAGE_CREDITS, now_str))
     
     # Initialize settings/profiles for ALL default personas separately
     import random
@@ -334,27 +356,57 @@ print("Database initialized successfully.")
 
 
 def get_user_billing(telegram_id):
-    """Retrieves the billing settings for a user, initializing if not exists."""
+    """Retrieves billing settings, performing weekly free trial message reset if 7+ days have elapsed."""
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM user_billing WHERE telegram_id = ?", (telegram_id,))
     row = cursor.fetchone()
-    conn.close()
-    if row:
-        return dict(row)
     
-    # Initialize if missing
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT OR IGNORE INTO user_billing (telegram_id, free_messages_used, chat_expires_at, image_credits)
-        VALUES (?, 0, NULL, ?)
-    """, (telegram_id, INITIAL_IMAGE_CREDITS))
-    conn.commit()
-    cursor.execute("SELECT * FROM user_billing WHERE telegram_id = ?", (telegram_id,))
-    row = cursor.fetchone()
+    now = datetime.utcnow()
+    now_str = now.isoformat()
+
+    if not row:
+        cursor.execute("""
+            INSERT OR IGNORE INTO user_billing (telegram_id, free_messages_used, chat_expires_at, image_credits, last_free_message_reset)
+            VALUES (?, 0, NULL, ?, ?)
+        """, (telegram_id, INITIAL_IMAGE_CREDITS, now_str))
+        conn.commit()
+        cursor.execute("SELECT * FROM user_billing WHERE telegram_id = ?", (telegram_id,))
+        row = cursor.fetchone()
+        conn.close()
+        return dict(row) if row else None
+        
+    billing_dict = dict(row)
+    
+    # Check weekly reset condition (7 days = 604800 seconds)
+    last_reset_val = billing_dict.get("last_free_message_reset")
+    should_reset = False
+    
+    if not last_reset_val:
+        should_reset = True
+    else:
+        try:
+            if isinstance(last_reset_val, str):
+                last_reset_dt = datetime.fromisoformat(last_reset_val.replace("Z", "").replace(" ", "T"))
+            else:
+                last_reset_dt = last_reset_val
+            if (now - last_reset_dt) >= timedelta(days=7):
+                should_reset = True
+        except Exception:
+            should_reset = True
+            
+    if should_reset:
+        cursor.execute("""
+            UPDATE user_billing
+            SET free_messages_used = 0, last_free_message_reset = ?
+            WHERE telegram_id = ?
+        """, (now_str, telegram_id))
+        conn.commit()
+        billing_dict["free_messages_used"] = 0
+        billing_dict["last_free_message_reset"] = now_str
+        
     conn.close()
-    return dict(row) if row else None
+    return billing_dict
 
 
 def increment_free_messages(telegram_id):
@@ -370,7 +422,7 @@ def increment_free_messages(telegram_id):
     conn.close()
 
 
-def grant_chat_pass(telegram_id, hours=3):
+def grant_chat_pass(telegram_id, hours=24):
     """Grants or extends a chat subscription for the user by a given number of hours."""
     # Ensure user exists in billing
     get_user_billing(telegram_id)
@@ -458,8 +510,127 @@ def use_image_credit(telegram_id):
     return True
 
 
+def log_payment_intent(telegram_id, item_type, amount=5000, payment_link_id=None):
+    """
+    Logs when a user clicks 'Pay 50' or generates a payment link / order.
+    Status starts as 'initiated'.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT INTO payment_intents (telegram_id, item_type, amount, payment_link_id, status)
+            VALUES (?, ?, ?, ?, 'initiated')
+        """, (telegram_id, item_type, amount, payment_link_id))
+        conn.commit()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Error logging payment intent: {e}")
+    finally:
+        conn.close()
+
+
+def mark_payment_intent_completed(telegram_id, payment_link_id=None, item_type=None):
+    """
+    Marks payment intent(s) for a user as completed when payment is verified.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        now_str = datetime.utcnow().isoformat()
+        if payment_link_id:
+            cursor.execute("""
+                UPDATE payment_intents
+                SET status = 'completed', updated_at = ?
+                WHERE (payment_link_id = ? OR telegram_id = ?) AND status = 'initiated'
+            """, (now_str, payment_link_id, telegram_id))
+        else:
+            cursor.execute("""
+                UPDATE payment_intents
+                SET status = 'completed', updated_at = ?
+                WHERE telegram_id = ? AND status = 'initiated'
+            """, (now_str, telegram_id))
+        conn.commit()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Error marking payment intent completed: {e}")
+    finally:
+        conn.close()
+
+
+def get_trying_users():
+    """
+    Retrieves the list of all users who have tried/are trying the app.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT u.telegram_id, u.username, u.first_name, u.created_at,
+               b.free_messages_used, b.chat_expires_at, b.image_credits
+        FROM users u
+        LEFT JOIN user_billing b ON u.telegram_id = b.telegram_id
+        ORDER BY u.created_at DESC
+    """)
+    rows = cursor.fetchall()
+    users_list = []
+    now = datetime.utcnow()
+    for r in rows:
+        is_sub = False
+        if r["chat_expires_at"]:
+            try:
+                exp = datetime.fromisoformat(r["chat_expires_at"])
+                if exp > now:
+                    is_sub = True
+            except Exception:
+                pass
+        users_list.append({
+            "telegram_id": r["telegram_id"],
+            "username": r["username"],
+            "first_name": r["first_name"],
+            "created_at": r["created_at"],
+            "free_messages_used": r["free_messages_used"] or 0,
+            "chat_expires_at": r["chat_expires_at"],
+            "is_chat_subscribed": is_sub,
+            "image_credits": r["image_credits"] or 0
+        })
+    conn.close()
+    return users_list
+
+
+def get_abandoned_payment_link_users():
+    """
+    Retrieves users who clicked 'Pay 50' and left after generating the payment link without completing payment.
+    Returns distinct intents/users with status 'initiated'.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT pi.id, pi.telegram_id, pi.item_type, pi.amount, pi.payment_link_id, pi.created_at,
+               u.username, u.first_name
+        FROM payment_intents pi
+        LEFT JOIN users u ON pi.telegram_id = u.telegram_id
+        WHERE pi.status = 'initiated'
+        ORDER BY pi.created_at DESC
+    """)
+    rows = cursor.fetchall()
+    abandoned_list = []
+    for r in rows:
+        abandoned_list.append({
+            "intent_id": r["id"],
+            "telegram_id": r["telegram_id"],
+            "username": r["username"],
+            "first_name": r["first_name"],
+            "item_type": r["item_type"],
+            "amount_inr": (r["amount"] or 5000) / 100.0,
+            "payment_link_id": r["payment_link_id"],
+            "created_at": r["created_at"]
+        })
+    conn.close()
+    return abandoned_list
+
+
 def log_payment(telegram_id, payment_id, order_id, amount, item_type):
-    """Logs a successful payment transaction."""
+    """Logs a successful payment transaction and marks intent completed."""
     conn = get_connection()
     cursor = conn.cursor()
     try:
@@ -473,6 +644,9 @@ def log_payment(telegram_id, payment_id, order_id, amount, item_type):
         logging.getLogger(__name__).error(f"Error logging payment in DB: {e}")
     finally:
         conn.close()
+    
+    # Also mark intent as completed
+    mark_payment_intent_completed(telegram_id, payment_link_id=payment_id or order_id, item_type=item_type)
 
 
 def get_admin_stats():
@@ -520,12 +694,18 @@ def get_admin_stats():
         
     conn.close()
     
+    trying_users = get_trying_users()
+    abandoned_users = get_abandoned_payment_link_users()
+    
     return {
         "total_users": total_users,
         "paying_users": paying_users,
         "total_payments": total_payments,
         "total_revenue_inr": total_revenue_inr,
-        "recent_payments": recent_payments
+        "recent_payments": recent_payments,
+        "trying_users": trying_users,
+        "abandoned_checkout_users": abandoned_users,
+        "abandoned_checkouts_count": len(abandoned_users)
     }
 
 

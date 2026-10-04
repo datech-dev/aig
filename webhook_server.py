@@ -81,16 +81,16 @@ async def handle_razorpay_webhook(request):
             return web.Response(text="Internal server error", status=500)
             
         if item_type == "chat_pass":
-            expiry = database.grant_chat_pass(user_id, hours=3)
+            expiry = database.grant_chat_pass(user_id, hours=config.CHAT_PASS_DURATION_HOURS)
             expiry_str = expiry.strftime("%Y-%m-%d %H:%M:%S UTC")
-            logger.info(f"Granted 3 hours chat pass to user {user_id} via Razorpay webhook. Expires: {expiry_str}")
+            logger.info(f"Granted 1 day chat pass to user {user_id} via Razorpay webhook. Expires: {expiry_str}")
             
             try:
                 await tg_app.bot.send_message(
                     chat_id=user_id,
                     text=(
                         f"✅ <b>Payment Successful!</b>\n\n"
-                        f"Thank you for your payment! Your 3-hour unlimited chat pass has been activated.\n"
+                        f"Thank you for your payment! Your 1-day unlimited chat pass has been activated.\n"
                         f"• <b>Expires at:</b> <code>{expiry_str}</code>\n\n"
                         f"You can now continue chatting with Karin!"
                     ),
@@ -186,6 +186,13 @@ async def handle_create_order(request):
             
         order = client.order.create(params)
         
+        # Log payment intent so web checkout clicks/order creations are tracked
+        if user_id:
+            try:
+                database.log_payment_intent(int(user_id), item_type or "chat_pass", amount, order["id"])
+            except Exception as e_log:
+                logger.error(f"Failed to log web order payment intent: {e_log}")
+        
         return web.json_response({
             "order_id": order["id"],
             "amount": order["amount"],
@@ -270,9 +277,9 @@ async def handle_verify_payment(request):
         tg_app = request.app.get('tg_app')
         
         if item_type == "chat_pass":
-            expiry = database.grant_chat_pass(user_id, hours=3)
+            expiry = database.grant_chat_pass(user_id, hours=config.CHAT_PASS_DURATION_HOURS)
             expiry_str = expiry.strftime("%Y-%m-%d %H:%M:%S UTC")
-            logger.info(f"Granted 3 hours chat pass to user {user_id} via Standard Checkout. Expires: {expiry_str}")
+            logger.info(f"Granted 1 day chat pass to user {user_id} via Standard Checkout. Expires: {expiry_str}")
             
             if tg_app:
                 try:
@@ -280,7 +287,7 @@ async def handle_verify_payment(request):
                         chat_id=user_id,
                         text=(
                             f"✅ <b>Payment Successful!</b>\n\n"
-                            f"Thank you for your payment! Your 3-hour unlimited chat pass has been activated.\n"
+                            f"Thank you for your payment! Your 1-day unlimited chat pass has been activated.\n"
                             f"• <b>Expires at:</b> <code>{expiry_str}</code>\n\n"
                             f"You can now continue chatting with Karin!"
                         ),

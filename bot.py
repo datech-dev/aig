@@ -37,7 +37,7 @@ USER_STATES = {}
 def get_chat_paywall_keyboard():
     keyboard = [
         [
-            InlineKeyboardButton("💳 Pay ₹50 for 3 Hours Chat", callback_data="pay_chat_pass")
+            InlineKeyboardButton("💳 Pay ₹50 for 1 Day Chat", callback_data="pay_chat_pass")
         ],
         [
             InlineKeyboardButton("🔙 View Profile / Balance", callback_data="profile_back")
@@ -113,9 +113,9 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         remaining_free = config.FREE_MESSAGE_LIMIT - billing["free_messages_used"]
         if remaining_free > 0:
-            chat_status = f"⏳ <b>Free Trial</b> ({remaining_free} messages left)"
+            chat_status = f"⏳ <b>Weekly Free Trial</b> ({remaining_free}/10 free messages left this week)"
         else:
-            chat_status = "❌ <b>Expired</b> (Purchase required to chat)"
+            chat_status = "❌ <b>Trial Expired</b> (Auto-refreshes next week or purchase pass)"
             
     image_credits = billing["image_credits"]
     image_status = f"📸 <b>{image_credits} Image Credits</b>"
@@ -450,7 +450,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     elif data == "buy_chat_menu":
         paywall_text = (
             f"💬 <b>CHAT PASS SUBSCRIPTION</b> 💬\n\n"
-            f"Get unlimited messaging with Karin for <b>3 hours</b> for only <b>₹50</b>!\n\n"
+            f"Get unlimited messaging with Karin for <b>1 day (24 hours)</b> for only <b>₹50</b>!\n\n"
             f"Click the button below to purchase or simulate payment."
         )
         await query.message.edit_text(
@@ -474,14 +474,17 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         
     elif data == "pay_chat_pass":
         if not config.RAZORPAY_KEY_ID or config.RAZORPAY_KEY_ID == "YOUR_RAZORPAY_KEY_ID":
+            # Track simulated payment intent and completion
+            database.log_payment_intent(user_id, "chat_pass", 5000, "simulated_chat_pass")
+            database.mark_payment_intent_completed(user_id, "simulated_chat_pass", "chat_pass")
             # Fall back to simulated payment
             await query.message.edit_text("⚠️ <i>Razorpay API Key is missing in .env. Simulating successful checkout...</i>", parse_mode="HTML")
             await asyncio.sleep(1.0)
-            expiry = database.grant_chat_pass(user_id, hours=3)
+            expiry = database.grant_chat_pass(user_id, hours=config.CHAT_PASS_DURATION_HOURS)
             expiry_str = expiry.strftime("%Y-%m-%d %H:%M:%S UTC")
             success_text = (
                 f"✅ <b>Payment Successful (Simulated)!</b>\n\n"
-                f"Thank you! Your 3-hour unlimited chat pass has been activated.\n"
+                f"Thank you! Your 1-day unlimited chat pass has been activated.\n"
                 f"• <b>Expires at:</b> <code>{expiry_str}</code>\n\n"
                 f"You can now continue chatting with Karin!"
             )
@@ -501,7 +504,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                     "amount": 5000,
                     "currency": "INR",
                     "accept_partial": False,
-                    "description": "3 Hours Karin Chat Pass",
+                    "description": "1 Day Karin Chat Pass",
                     "customer": {
                         "name": query.from_user.first_name,
                     },
@@ -519,10 +522,14 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 })
                 
                 short_url = payment_link["short_url"]
+                pl_id = payment_link.get("id") or short_url
+                
+                # Log payment intent so users who generate payment link and leave are tracked!
+                database.log_payment_intent(user_id, "chat_pass", 5000, pl_id)
                 
                 checkout_text = (
                     f"💳 <b>Razorpay Checkout</b>\n\n"
-                    f"Click the button below to pay <b>₹50</b> via UPI, Card, or Netbanking to activate your 3-Hour Chat Pass."
+                    f"Click the button below to pay <b>₹50</b> via UPI, Card, or Netbanking to activate your 1-Day Chat Pass."
                 )
                 keyboard = [
                     [InlineKeyboardButton("🔗 Pay ₹50 via Razorpay", url=short_url)],
@@ -535,6 +542,9 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         
     elif data == "pay_image_credits":
         if not config.RAZORPAY_KEY_ID or config.RAZORPAY_KEY_ID == "YOUR_RAZORPAY_KEY_ID":
+            # Track simulated payment intent and completion
+            database.log_payment_intent(user_id, "image_credits", 5000, "simulated_image_credits")
+            database.mark_payment_intent_completed(user_id, "simulated_image_credits", "image_credits")
             # Fall back to simulated payment
             await query.message.edit_text("⚠️ <i>Razorpay API Key is missing in .env. Simulating successful checkout...</i>", parse_mode="HTML")
             await asyncio.sleep(1.0)
@@ -580,6 +590,10 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
                 })
                 
                 short_url = payment_link["short_url"]
+                pl_id = payment_link.get("id") or short_url
+                
+                # Log payment intent so users who generate payment link and leave are tracked!
+                database.log_payment_intent(user_id, "image_credits", 5000, pl_id)
                 
                 checkout_text = (
                     f"💳 <b>Razorpay Checkout</b>\n\n"
@@ -915,7 +929,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             paywall_text = (
                 f"💸 <b>FREE TRIAL EXPIRED</b> 💸\n\n"
                 f"You have used all your {config.FREE_MESSAGE_LIMIT} free messages.\n"
-                f"To unlock unlimited messaging for 3 hours, purchase a chat pass for just ₹50."
+                f"To unlock unlimited messaging for 1 day, purchase a chat pass for just ₹50."
             )
             await update.message.reply_text(
                 paywall_text,
@@ -1046,7 +1060,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin-only command to view usage and payment statistics."""
+    """Admin-only command to view detailed usage, user list, payment link abandonment, and revenue statistics."""
     user = update.effective_user
     is_admin = False
     if config.ADMIN_TELEGRAM_ID and str(user.id) == str(config.ADMIN_TELEGRAM_ID):
@@ -1065,6 +1079,7 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if stats["total_users"] > 0:
             conversion_rate = (stats["paying_users"] / stats["total_users"]) * 100.0
             
+        # 1. Recent Payments
         recent_text = ""
         if stats["recent_payments"]:
             recent_text = "\n📈 <b>Recent Payments:</b>\n"
@@ -1076,15 +1091,45 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"<b>₹{p['amount_inr']:.2f}</b> for <code>{p['item_type']}</code>\n"
                 )
         else:
-            recent_text = "\n<i>No payments recorded yet.</i>\n"
+            recent_text = "\n<i>No completed payments yet.</i>\n"
+
+        # 2. Tracked Users Trying the App
+        trying_text = "\n📱 <b>Users Trying App:</b>\n"
+        if stats.get("trying_users"):
+            for u in stats["trying_users"][:10]: # show top 10 recent
+                u_str = f"@{u['username']}" if u['username'] else f"ID: {u['telegram_id']}"
+                name = u['first_name'] or "User"
+                sub_status = "Pass Active" if u['is_chat_subscribed'] else f"{u['free_messages_used']} msgs used"
+                trying_text += f"• {name} ({u_str}) - Joined: {u['created_at'][:10]} [{sub_status}]\n"
+            if len(stats["trying_users"]) > 10:
+                trying_text += f"  <i>...and {len(stats['trying_users']) - 10} more users.</i>\n"
+        else:
+            trying_text += "<i>No registered users yet.</i>\n"
+
+        # 3. Tracked Users Clicking Pay 50 and Leaving
+        abandoned_text = "\n⚠️ <b>Users Clicked Pay ₹50 & Left (Payment Link Generated):</b>\n"
+        if stats.get("abandoned_checkout_users"):
+            for ab in stats["abandoned_checkout_users"][:10]: # show top 10
+                u_str = f"@{ab['username']}" if ab['username'] else f"ID: {ab['telegram_id']}"
+                name = ab['first_name'] or "User"
+                item = ab['item_type'] or "chat_pass"
+                date_str = ab['created_at'][:19] if ab['created_at'] else "Recently"
+                abandoned_text += f"• {date_str} - {name} ({u_str}) generated ₹{ab['amount_inr']:.0f} link for <code>{item}</code> & left\n"
+            if len(stats["abandoned_checkout_users"]) > 10:
+                abandoned_text += f"  <i>...and {len(stats['abandoned_checkout_users']) - 10} more left link checkout.</i>\n"
+        else:
+            abandoned_text += "<i>No abandoned payment links recorded.</i>\n"
             
         stats_card = (
             f"📊 <b>Karin AI - Admin Statistics</b>\n\n"
-            f"👥 <b>Total Users trying bot:</b> {stats['total_users']}\n"
+            f"👥 <b>Total Users Trying App:</b> {stats['total_users']}\n"
+            f"⚠️ <b>Users Clicked Pay 50 & Left:</b> {stats['abandoned_checkouts_count']}\n"
             f"💳 <b>Total Paying Users:</b> {stats['paying_users']}\n"
-            f"💰 <b>Total Payments count:</b> {stats['total_payments']}\n"
+            f"💰 <b>Completed Payments:</b> {stats['total_payments']}\n"
             f"💵 <b>Total Revenue:</b> ₹{stats['total_revenue_inr']:.2f} INR\n"
             f"🔄 <b>Conversion Rate:</b> {conversion_rate:.2f}%\n"
+            f"{trying_text}"
+            f"{abandoned_text}"
             f"{recent_text}"
         )
         await update.message.reply_text(stats_card, parse_mode="HTML")
