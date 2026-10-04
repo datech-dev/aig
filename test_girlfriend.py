@@ -109,7 +109,7 @@ class TestGirlfriendApp(unittest.TestCase):
         database.setup_user(test_id, "dummy", "Dummy")
         settings = database.get_user_settings(test_id)
         
-        # Test system prompt builder
+        # Test system prompt builder (default: Caring Best Friend mode)
         system_prompt = config.construct_system_prompt(
             persona_key=settings["active_persona"],
             relationship_xp=settings["relationship_xp"],
@@ -118,9 +118,19 @@ class TestGirlfriendApp(unittest.TestCase):
         )
         
         self.assertIn("Karin", system_prompt)
-        self.assertIn("loving, sweet girlfriend", system_prompt)
+        self.assertIn("caring, warm, supportive", system_prompt)
         self.assertIn("Dummy", system_prompt)
         self.assertIn("GENERATE_IMAGE", system_prompt)  # Ensure tag guidelines are present
+        
+        # Test intimate mode system prompt builder
+        system_prompt_intimate = config.construct_system_prompt(
+            persona_key=settings["active_persona"],
+            relationship_xp=settings["relationship_xp"],
+            user_nickname=settings["user_nickname"],
+            ai_nickname=settings["ai_nickname"],
+            chat_mode="intimate"
+        )
+        self.assertIn("loving, sweet girlfriend", system_prompt_intimate)
 
     def test_04_billing_operations(self):
         """Verify billing db helpers, limits, and blocking checks."""
@@ -344,7 +354,8 @@ class TestGirlfriendApp(unittest.TestCase):
             relationship_xp=10,
             user_nickname="Girl",
             ai_nickname="Karin",
-            user_orientation="lesbian"
+            user_orientation="lesbian",
+            chat_mode="intimate"
         )
         self.assertIn("You are her loving, sweet girlfriend", system_prompt)
         self.assertNotIn("You are his loving, sweet girlfriend", system_prompt)
@@ -470,6 +481,55 @@ class TestGirlfriendApp(unittest.TestCase):
         # Verify admin stats reflect abandoned checkouts count
         stats = database.get_admin_stats()
         self.assertGreaterEqual(stats["abandoned_checkouts_count"], 1)
+
+    def test_16_chat_mode_and_memory_bank(self):
+        """Verify switching chat modes (normal/intimate) and storing/retrieving memories."""
+        u_id = 99998888
+        database.setup_user(u_id, "mode_user", "ModeUser")
+        
+        # 1. Test chat mode toggle
+        initial_mode = database.get_chat_mode(u_id)
+        self.assertEqual(initial_mode, "normal")
+        
+        toggled_mode = database.toggle_chat_mode(u_id)
+        self.assertEqual(toggled_mode, "intimate")
+        self.assertEqual(database.get_chat_mode(u_id), "intimate")
+        
+        toggled_back = database.toggle_chat_mode(u_id)
+        self.assertEqual(toggled_back, "normal")
+        self.assertEqual(database.get_chat_mode(u_id), "normal")
+        
+        # 2. Test system prompt construction for normal vs intimate modes
+        prompt_normal = config.construct_system_prompt("karin", 100, user_nickname="Honey", ai_nickname="Karin", chat_mode="normal")
+        self.assertIn("caring, warm, supportive", prompt_normal)
+        self.assertIn("Do NOT engage in explicit sexual talk", prompt_normal)
+        
+        prompt_intimate = config.construct_system_prompt("karin", 300, user_nickname="Honey", ai_nickname="Karin", chat_mode="intimate")
+        self.assertIn("loving, sweet girlfriend", prompt_intimate)
+        
+        # 3. Test memory bank operations
+        database.add_user_memory(u_id, "Likes/Prefers: South Indian Biryani", category="preference")
+        database.add_user_memory(u_id, "Works as: Software Engineer", category="detail")
+        database.add_user_memory(u_id, "Emotional state: Feeling stressed about work deadlines", category="problem")
+        
+        mems = database.get_user_memories(u_id)
+        self.assertEqual(len(mems), 3)
+        self.assertIn("Likes/Prefers: South Indian Biryani", mems)
+        self.assertIn("Works as: Software Engineer", mems)
+        
+        # Verify duplicate memory prevention
+        added_dup = database.add_user_memory(u_id, "Likes/Prefers: South Indian Biryani", category="preference")
+        self.assertFalse(added_dup)
+        self.assertEqual(len(database.get_user_memories(u_id)), 3)
+        
+        # Verify prompt memory injection
+        prompt_with_mem = config.construct_system_prompt("karin", 100, memories=mems)
+        self.assertIn("THINGS YOU REMEMBER ABOUT THIS USER", prompt_with_mem)
+        self.assertIn("Software Engineer", prompt_with_mem)
+        
+        # Verify memory clearing
+        database.clear_user_memories(u_id)
+        self.assertEqual(len(database.get_user_memories(u_id)), 0)
 
 if __name__ == "__main__":
     unittest.main()

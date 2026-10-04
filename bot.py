@@ -89,29 +89,27 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Displays the user's relationship progress with Karin, nicknames, and billing info."""
-    user = update.effective_user
-    database.setup_user(user.id, user.username, user.first_name)
-    settings = database.get_user_settings(user.id)
-    
-    if not settings:
-        await update.message.reply_text("Error loading profile. Try running /start first.")
-        return
-        
-    persona_key = settings["active_persona"]
-    persona = config.PERSONAS[persona_key]
-    xp = settings["relationship_xp"]
-    
+def build_profile_view(user_id):
+    """Constructs the profile text and reply markup keyboard."""
+    settings = database.get_user_settings(user_id)
+    persona_key = settings["active_persona"] if settings else "karin"
+    persona = config.PERSONAS.get(persona_key, config.PERSONAS["karin"])
+    xp = settings["relationship_xp"] if settings else 0
     status = config.get_relationship_status(xp)
     bar = get_progress_bar(status["percent"])
     
-    u_nick = settings["user_nickname"] if settings["user_nickname"] else "User"
-    ai_nick = settings["ai_nickname"] if settings["ai_nickname"] else persona["name"]
+    u_nick = settings["user_nickname"] if (settings and settings.get("user_nickname")) else "User"
+    ai_nick = settings["ai_nickname"] if (settings and settings.get("ai_nickname")) else persona["name"]
     
-    # Billing Info
-    billing = database.get_user_billing(user.id)
-    if database.is_chat_subscribed(user.id):
+    chat_mode = database.get_chat_mode(user_id)
+    mode_label = "🌸 <b>Caring Best Friend</b> (Supportive & empathetic)" if chat_mode == "normal" else "🔥 <b>Intimate Girlfriend</b> (Flirty & passionate)"
+    mode_btn_text = "🔥 Switch to Intimate Mode" if chat_mode == "normal" else "🌸 Switch to Best Friend Mode"
+    
+    memories = database.get_user_memories(user_id)
+    mem_count = len(memories)
+    
+    billing = database.get_user_billing(user_id)
+    if database.is_chat_subscribed(user_id):
         expiry = datetime.fromisoformat(billing["chat_expires_at"])
         remaining = expiry - datetime.utcnow()
         hours, remainder = divmod(remaining.seconds, 3600)
@@ -122,9 +120,9 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         remaining_free = config.FREE_MESSAGE_LIMIT - billing["free_messages_used"]
         if remaining_free > 0:
-            chat_status = f"⏳ <b>Weekly Free Trial</b> ({remaining_free}/10 free messages left this week)"
+            chat_status = f"⏳ <b>Free Trial</b> ({remaining_free}/10 free messages left)"
         else:
-            chat_status = "❌ <b>Trial Expired</b> (Auto-refreshes next week or purchase pass)"
+            chat_status = "❌ <b>Trial Expired</b> (Purchase ₹50 pass to unlock)"
             
     image_credits = billing["image_credits"]
     image_status = f"📸 <b>{image_credits} Image Credits</b>"
@@ -132,18 +130,24 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     profile_text = (
         f"❤️ <b>YOUR RELATIONSHIP PROFILE</b> ❤️\n\n"
         f"<b>Partner:</b> {persona['name']} ({persona['tagline']})\n"
+        f"<b>Chat Mode:</b> {mode_label}\n"
         f"<b>Relationship Level:</b> {status['level']} - <b>{status['title']}</b>\n"
         f"<b>XP Progress:</b> {xp} XP\n"
         f"<code>[{bar}]</code> {status['percent']}%\n\n"
         f"👤 <b>What she calls you:</b> <code>{html.escape(u_nick)}</code>\n"
-        f"🤖 <b>What you call her:</b> <code>{html.escape(ai_nick)}</code>\n\n"
+        f"🤖 <b>What you call her:</b> <code>{html.escape(ai_nick)}</code>\n"
+        f"🧠 <b>Memory Bank:</b> <code>{mem_count} details remembered</code>\n\n"
         f"💳 <b>BILLING & SUBSCRIPTION</b> 💳\n"
         f"• <b>Chat Subscription:</b> {chat_status}\n"
         f"• <b>Image Generation:</b> {image_status}\n\n"
-        f"<i>Chat with her to gain more XP and unlock new levels of intimacy!</i>"
+        f"<i>Switch between Caring Best Friend and Intimate Girlfriend modes anytime!</i>"
     )
     
     keyboard = [
+        [
+            InlineKeyboardButton(mode_btn_text, callback_data="toggle_chat_mode"),
+            InlineKeyboardButton("🧠 Memory Bank", callback_data="view_memories")
+        ],
         [
             InlineKeyboardButton("✏️ Edit Nicknames", callback_data="menu_nicknames")
         ],
@@ -155,8 +159,15 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("🔄 Reset Chat History", callback_data="menu_reset_history")
         ]
     ]
+    return profile_text, InlineKeyboardMarkup(keyboard)
+
+
+async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Displays the user's relationship progress with Karin, nicknames, mode, and billing info."""
+    user = update.effective_user
+    database.setup_user(user.id, user.username, user.first_name)
     
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    profile_text, reply_markup = build_profile_view(user.id)
     await update.message.reply_text(profile_text, reply_markup=reply_markup, parse_mode="HTML")
 
 
@@ -620,69 +631,57 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     # 5. Back to Profile
     elif data == "profile_back":
         USER_STATES.pop(user_id, None)
-        
-        settings = database.get_user_settings(user_id)
-        persona_key = settings["active_persona"]
-        persona = config.PERSONAS[persona_key]
-        xp = settings["relationship_xp"]
-        status = config.get_relationship_status(xp)
-        bar = get_progress_bar(status["percent"])
-        
-        u_nick = settings["user_nickname"] if settings["user_nickname"] else "User"
-        ai_nick = settings["ai_nickname"] if settings["ai_nickname"] else persona["name"]
-        
-        # Billing Info
-        billing = database.get_user_billing(user_id)
-        if database.is_chat_subscribed(user_id):
-            expiry = datetime.fromisoformat(billing["chat_expires_at"])
-            remaining = expiry - datetime.utcnow()
-            hours, remainder = divmod(remaining.seconds, 3600)
-            minutes, _ = divmod(remainder, 60)
-            if remaining.days > 0:
-                hours += remaining.days * 24
-            chat_status = f"✅ <b>Active</b> (expires in {hours}h {minutes}m)"
+        profile_text, reply_markup = build_profile_view(user_id)
+        await query.message.edit_text(profile_text, reply_markup=reply_markup, parse_mode="HTML")
+
+    # Mode and Memory Bank Callbacks
+    elif data == "toggle_chat_mode":
+        new_mode = database.toggle_chat_mode(user_id)
+        if new_mode == "normal":
+            msg = (
+                "🌸 <b>Mode Switched: CARING BEST FRIEND</b> 🌸\n\n"
+                "Karin will now talk to you as a sweet, supportive, compassionate best friend! "
+                "She will focus on listening to your day, comforting your struggles, and offering warm emotional care."
+            )
         else:
-            remaining_free = config.FREE_MESSAGE_LIMIT - billing["free_messages_used"]
-            if remaining_free > 0:
-                chat_status = f"⏳ <b>Free Trial</b> ({remaining_free} messages left)"
-            else:
-                chat_status = "❌ <b>Expired</b> (Purchase required to chat)"
-                
-        image_credits = billing["image_credits"]
-        image_status = f"📸 <b>{image_credits} Image Credits</b>"
-        
-        profile_text = (
-            f"❤️ <b>YOUR RELATIONSHIP PROFILE</b> ❤️\n\n"
-            f"<b>Partner:</b> {persona['name']} ({persona['tagline']})\n"
-            f"<b>Relationship Level:</b> {status['level']} - <b>{status['title']}</b>\n"
-            f"<b>XP Progress:</b> {xp} XP\n"
-            f"<code>[{bar}]</code> {status['percent']}%\n\n"
-            f"👤 <b>What she calls you:</b> <code>{html.escape(u_nick)}</code>\n"
-            f"🤖 <b>What you call her:</b> <code>{html.escape(ai_nick)}</code>\n\n"
-            f"💳 <b>BILLING & SUBSCRIPTION</b> 💳\n"
-            f"• <b>Chat Subscription:</b> {chat_status}\n"
-            f"• <b>Image Generation:</b> {image_status}\n\n"
-            f"<i>Chat with her to gain more XP and unlock new levels of intimacy!</i>"
-        )
-        
-        keyboard = [
-            [
-                InlineKeyboardButton("✏️ Edit Nicknames", callback_data="menu_nicknames")
-            ],
-            [
-                InlineKeyboardButton("💬 Buy Chat Pass (₹50)", callback_data="buy_chat_menu"),
-                InlineKeyboardButton("📸 Buy 10 Images (₹50)", callback_data="buy_image_menu")
-            ],
-            [
-                InlineKeyboardButton("🔄 Reset Chat History", callback_data="menu_reset_history")
+            msg = (
+                "🔥 <b>Mode Switched: INTIMATE GIRLFRIEND</b> 🔥\n\n"
+                "Karin will now talk to you as a flirty, passionate, and deeply intimate girlfriend!"
+            )
+        keyboard = [[InlineKeyboardButton("🔙 Back to Profile", callback_data="profile_back")]]
+        await query.message.edit_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+
+    elif data == "view_memories":
+        memories = database.get_user_memories(user_id)
+        if not memories:
+            mem_text = (
+                "🧠 <b>KARIN'S MEMORY BANK ABOUT YOU</b>\n\n"
+                "<i>I haven't remembered any specific preferences or personal details yet!</i>\n\n"
+                "Chat with me and tell me about your job, favorite things, daily life, or feelings, and I'll keep them in mind to support you."
+            )
+            keyboard = [[InlineKeyboardButton("🔙 Back to Profile", callback_data="profile_back")]]
+        else:
+            mem_list = "\n".join([f"• <b>{html.escape(m)}</b>" for m in memories])
+            mem_text = (
+                f"🧠 <b>KARIN'S MEMORY BANK ABOUT YOU</b> 🧠\n\n"
+                f"Here are the personal details, preferences, and feelings you've shared with me:\n\n"
+                f"{mem_list}\n\n"
+                f"<i>I remember these details to understand you better, support your struggles, and care for you deeply!</i>"
+            )
+            keyboard = [
+                [InlineKeyboardButton("🗑️ Clear Memory Bank", callback_data="clear_memories")],
+                [InlineKeyboardButton("🔙 Back to Profile", callback_data="profile_back")]
             ]
-        ]
-        
-        await query.message.edit_text(
-            profile_text,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="HTML"
+        await query.message.edit_text(mem_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+
+    elif data == "clear_memories":
+        database.clear_user_memories(user_id)
+        msg = (
+            "🗑️ <b>Memory Bank Cleared!</b>\n\n"
+            "I have cleared previously stored personal details. As we keep chatting, I'll start fresh in remembering details you share!"
         )
+        keyboard = [[InlineKeyboardButton("🔙 Back to Profile", callback_data="profile_back")]]
+        await query.message.edit_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
     # 6. Visualize Image Request
     elif data == "visualize_image":
@@ -987,6 +986,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ai_nick = settings["ai_nickname"] if (settings and settings["ai_nickname"]) else persona["name"]
         user_orientation = settings.get("user_orientation", "straight") if settings else "straight"
         
+        # Extract & store personal details/memories from user message
+        ai_engine.extract_and_save_user_memories(user.id, text)
+        
+        chat_mode = database.get_chat_mode(user.id)
+        memories = database.get_user_memories(user.id)
+        
         # Get chat history for Karin
         history = database.get_chat_history(user.id, persona_key)
         
@@ -998,7 +1003,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ai_nickname=ai_nick,
             chat_history=history,
             user_message=text,
-            user_orientation=user_orientation
+            user_orientation=user_orientation,
+            chat_mode=chat_mode,
+            memories=memories
         )
         
         # Check if the AI's reply contains an image generation tag [GENERATE_IMAGE: prompt]
@@ -1197,6 +1204,56 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Failed to retrieve stats: {e}")
 
 
+async def mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Allows user to toggle between Caring Best Friend and Intimate Girlfriend modes."""
+    user = update.effective_user
+    database.setup_user(user.id, user.username, user.first_name)
+    
+    new_mode = database.toggle_chat_mode(user.id)
+    if new_mode == "normal":
+        msg = (
+            "🌸 <b>Mode Switched: CARING BEST FRIEND</b> 🌸\n\n"
+            "Karin will now talk to you as a sweet, supportive, compassionate best friend! "
+            "She will focus on listening to your day, comforting your struggles, and offering warm emotional care without NSFW/explicit talk."
+        )
+    else:
+        msg = (
+            "🔥 <b>Mode Switched: INTIMATE GIRLFRIEND</b> 🔥\n\n"
+            "Karin will now talk to you as a flirty, passionate, and deeply intimate girlfriend!"
+        )
+    
+    keyboard = [[InlineKeyboardButton("🔙 View Profile", callback_data="profile_back")]]
+    await update.message.reply_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+
+
+async def memories_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Displays stored user memories and personal details."""
+    user = update.effective_user
+    database.setup_user(user.id, user.username, user.first_name)
+    
+    memories = database.get_user_memories(user.id)
+    if not memories:
+        mem_text = (
+            "🧠 <b>KARIN'S MEMORY BANK ABOUT YOU</b>\n\n"
+            "<i>I haven't remembered any specific preferences or personal details yet!</i>\n\n"
+            "Chat with me and tell me about your job, favorite things, daily life, or feelings, and I'll keep them in mind to support you."
+        )
+        keyboard = [[InlineKeyboardButton("🔙 Back to Profile", callback_data="profile_back")]]
+    else:
+        mem_list = "\n".join([f"• <b>{html.escape(m)}</b>" for m in memories])
+        mem_text = (
+            f"🧠 <b>KARIN'S MEMORY BANK ABOUT YOU</b> 🧠\n\n"
+            f"Here are the personal details, preferences, and feelings you've shared with me:\n\n"
+            f"{mem_list}\n\n"
+            f"<i>I remember these details to understand you better, support your struggles, and care for you deeply!</i>"
+        )
+        keyboard = [
+            [InlineKeyboardButton("🗑️ Clear Memory Bank", callback_data="clear_memories")],
+            [InlineKeyboardButton("🔙 Back to Profile", callback_data="profile_back")]
+        ]
+    await update.message.reply_text(mem_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+
+
 # --- Main Application Boot ---
 
 async def post_init(application: Application):
@@ -1225,7 +1282,8 @@ def main():
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("profile", profile_command))
     application.add_handler(CommandHandler("roleplay", roleplay_command))
-    application.add_handler(CommandHandler("mode", roleplay_command))
+    application.add_handler(CommandHandler("mode", mode_command))
+    application.add_handler(CommandHandler("memories", memories_command))
     application.add_handler(CommandHandler("draw", draw_command))
     application.add_handler(CommandHandler("image", draw_command))
     application.add_handler(CommandHandler("reset", reset_command))

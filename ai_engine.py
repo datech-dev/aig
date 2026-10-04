@@ -23,6 +23,63 @@ client = AsyncOpenAI(
     base_url="https://api.venice.ai/api/v1"
 )
 
+import re
+import database
+
+def extract_and_save_user_memories(user_id: int, user_message: str):
+    """
+    Scans incoming user messages for personal disclosures, preferences, 
+    and emotional struggles, saving extracted facts into the memory bank.
+    """
+    text = user_message.strip()
+    if len(text) < 4:
+        return
+        
+    # 1. Preferences & Likes
+    like_match = re.search(r'\b(?:i|my)\s+(?:really\s+)?(?:love|like|enjoy|prefer|am addicted to|fav|favorite)\s+([^.,!?\n]+)', text, re.IGNORECASE)
+    if like_match:
+        val = like_match.group(1).strip()
+        if len(val) > 2 and len(val) < 80:
+            database.add_user_memory(user_id, f"Likes/Prefers: {val}", category="preference")
+            
+    # 2. Occupation & Work
+    job_match = re.search(r'\b(?:i work as|i am a|i\'m a|my job is|my profession is)\s+([^.,!?\n]+)', text, re.IGNORECASE)
+    if job_match:
+        val = job_match.group(1).strip()
+        if len(val) > 2 and len(val) < 60:
+            database.add_user_memory(user_id, f"Works as/Is: {val}", category="detail")
+            
+    # 3. Location / Residence
+    loc_match = re.search(r'\b(?:i live in|i am from|i\'m from|i stay in|located in)\s+([^.,!?\n]+)', text, re.IGNORECASE)
+    if loc_match:
+        val = loc_match.group(1).strip()
+        if len(val) > 2 and len(val) < 50:
+            database.add_user_memory(user_id, f"Lives in/From: {val}", category="detail")
+            
+    # 4. Emotional State & Problems / Struggles
+    feel_match = re.search(r'\b(?:i am feeling|i feel|feeling|i\'m feeling|so)\s+(stressed|sad|depressed|anxious|lonely|exhausted|tired|worried|scared|upset|overwhelmed|heartbroken)\s*([^.,!?\n]*)', text, re.IGNORECASE)
+    if feel_match:
+        emotion = feel_match.group(1).strip()
+        reason = feel_match.group(2).strip()
+        desc = f"Feeling {emotion} {reason}".strip()
+        if len(desc) < 100:
+            database.add_user_memory(user_id, f"Emotional state: {desc}", category="problem")
+            
+    prob_match = re.search(r'\b(?:i have a problem|i\'m struggling with|trouble with|worried about|hard time with|can\'t sleep|cannot sleep)\s+([^.,!?\n]+)', text, re.IGNORECASE)
+    if prob_match:
+        val = prob_match.group(1).strip()
+        if len(val) > 2 and len(val) < 100:
+            database.add_user_memory(user_id, f"Struggle/Problem: {val}", category="problem")
+
+    # 5. Relationships & Family details
+    rel_match = re.search(r'\b(?:my|i have a)\s+(dog|cat|pet|friend|brother|sister|wife|girlfriend|ex|mom|dad|mother|father|boss)\s+(?:is named|name is|called)?\s*([^.,!?\n]+)', text, re.IGNORECASE)
+    if rel_match:
+        rel_type = rel_match.group(1).strip()
+        val = rel_match.group(2).strip()
+        if len(val) > 1 and len(val) < 60:
+            database.add_user_memory(user_id, f"Family/Friend detail: {rel_type} - {val}", category="detail")
+
+
 async def generate_response(
     persona_key: str,
     relationship_xp: int,
@@ -30,7 +87,9 @@ async def generate_response(
     ai_nickname: str,
     chat_history: list,
     user_message: str,
-    user_orientation: str = 'straight'
+    user_orientation: str = 'straight',
+    chat_mode: str = 'normal',
+    memories: list = None
 ) -> str:
     """
     Sends the conversation history, user input, and dynamic system prompt to Venice.ai
@@ -48,7 +107,9 @@ async def generate_response(
         relationship_xp=relationship_xp,
         user_nickname=user_nickname,
         ai_nickname=ai_nickname,
-        user_orientation=user_orientation
+        user_orientation=user_orientation,
+        chat_mode=chat_mode,
+        memories=memories
     )
     
     # 2. Build the message list for Venice API

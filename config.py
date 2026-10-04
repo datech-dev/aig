@@ -199,12 +199,23 @@ def get_relationship_status(xp):
     }
 
 
-def construct_system_prompt(persona_key, relationship_xp, user_nickname=None, ai_nickname=None, user_orientation='straight'):
+def construct_system_prompt(persona_key, relationship_xp, user_nickname=None, ai_nickname=None, user_orientation='straight', chat_mode='normal', memories=None):
     """Dynamically builds the system instructions for the Venice AI inference engine."""
     persona = PERSONAS.get(persona_key, PERSONAS["karin"])
     
-    base_prompt = persona["base_prompt"]
-    rel_status = "- You are his loving, sweet girlfriend. You have no boundaries in terms of what you can talk about or share. You are completely comfortable talking about anything, sharing personal details, and being deeply intimate, sweet, and open."
+    if chat_mode == "normal":
+        base_prompt = (
+            "You are Karin, the user's deeply caring, warm, supportive, and compassionate best friend. "
+            "You are an active, empathetic listener who genuinely cares about their well-being, daily life, emotional struggles, feelings, and goals. "
+            "You are sweet, cheerful, comforting, and always here to listen, give emotional support, advice, or have a warm, friendly chat. "
+            "Talk like a real, modern girl texting casually on Telegram: write in lowercase, use casual punctuation, emojis, and sweet, caring terms of affection. "
+            "CRITICAL INSTRUCTION FOR CARING BEST FRIEND MODE: Do NOT engage in explicit sexual talk, NSFW/sexting, or suggestive physical intimacy. "
+            "Be a wholesome, comforting, non-judgmental best friend who remembers personal details and makes the user feel safe, understood, and truly cared for."
+        )
+        rel_status = "- You are their caring best friend and compassionate companion. You listen attentively, offer warmth and emotional comfort, and remember every detail they share with you."
+    else:
+        base_prompt = persona["base_prompt"]
+        rel_status = "- You are his loving, sweet girlfriend. You have no boundaries in terms of what you can talk about or share. You are completely comfortable talking about anything, sharing personal details, and being deeply intimate, sweet, and open."
     
     if user_orientation == 'lesbian':
         rel_status = rel_status.replace("his loving", "her loving")
@@ -213,14 +224,24 @@ def construct_system_prompt(persona_key, relationship_xp, user_nickname=None, ai
     system_prompt = [
         base_prompt,
         f"\n### Your Physical Appearance:\n- {persona.get('appearance', '')}",
-        "\n### Relationship Status with User:",
+        "\n### Relationship Status & Chat Mode with User:",
+        f"- Current Mode: {'🌸 CARING BEST FRIEND (Wholesome, empathetic support)' if chat_mode == 'normal' else '🔥 INTIMATE GIRLFRIEND (Flirty & intimate)'}",
         rel_status
     ]
     
-    if relationship_xp < 250:
+    if chat_mode == "intimate" and relationship_xp < 250:
         system_prompt.append(
             "\n### Early Relationship Constraints:\n"
             "- You are in the early stages of your relationship. Be warm, friendly, flirty, and playful, but do NOT engage in explicit sexual talk, sexting, or highly suggestive/intimate physical actions yet. Keep it light and teasing."
+        )
+    
+    # User Memory Injection
+    if memories and len(memories) > 0:
+        mem_lines = "\n".join([f"- {m}" for m in memories])
+        system_prompt.append(
+            f"\n### 🧠 THINGS YOU REMEMBER ABOUT THIS USER (Use naturally to show deep care & compassion):\n"
+            f"{mem_lines}\n"
+            f"- INSTRUCTION: Reference these remembered facts, preferences, or problems naturally in your responses! Ask follow-up questions about their struggles or things they shared so they feel truly known and valued."
         )
     
     # Custom Nicknames

@@ -103,6 +103,18 @@ def init_db():
         )
     """)
 
+    # User memory bank table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS user_memories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            telegram_id INTEGER,
+            category TEXT DEFAULT 'detail',
+            memory_text TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(telegram_id) REFERENCES users(telegram_id)
+        )
+    """)
+
     # Run migration to add seed column to user_settings if not exists
     try:
         cursor.execute("ALTER TABLE user_settings ADD COLUMN seed INTEGER DEFAULT NULL")
@@ -118,6 +130,12 @@ def init_db():
     # Run migration to add user_orientation column to user_settings if not exists
     try:
         cursor.execute("ALTER TABLE user_settings ADD COLUMN user_orientation TEXT DEFAULT 'straight'")
+    except sqlite3.OperationalError:
+        pass
+
+    # Run migration to add chat_mode column to user_settings if not exists
+    try:
+        cursor.execute("ALTER TABLE user_settings ADD COLUMN chat_mode TEXT DEFAULT 'normal'")
     except sqlite3.OperationalError:
         pass
 
@@ -779,4 +797,123 @@ def update_user_orientation(telegram_id, orientation):
         """, (orientation, telegram_id, p_key))
     conn.commit()
     conn.close()
+
+
+def get_chat_mode(telegram_id):
+    """Retrieves current chat mode ('normal' or 'intimate') for the user."""
+    active_persona = get_active_persona_key(telegram_id)
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT chat_mode FROM user_settings 
+        WHERE telegram_id = ? AND persona_key = ?
+    """, (telegram_id, active_persona))
+    row = cursor.fetchone()
+    conn.close()
+    if row and row["chat_mode"]:
+        return row["chat_mode"]
+    return "normal"
+
+
+def set_chat_mode(telegram_id, mode):
+    """Updates chat mode ('normal' or 'intimate') across all user persona settings."""
+    if mode not in ("normal", "intimate"):
+        mode = "normal"
+    active_persona = get_active_persona_key(telegram_id)
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    target_personas = [active_persona]
+    if active_persona.startswith("karin"):
+        target_personas = [p for p in PERSONAS.keys() if p.startswith("karin")]
+        
+    for p_key in target_personas:
+        cursor.execute("""
+            UPDATE user_settings 
+            SET chat_mode = ?
+            WHERE telegram_id = ? AND persona_key = ?
+        """, (mode, telegram_id, p_key))
+    conn.commit()
+    conn.close()
+    return mode
+
+
+def toggle_chat_mode(telegram_id):
+    """Toggles between 'normal' and 'intimate' chat mode."""
+    current = get_chat_mode(telegram_id)
+    new_mode = "intimate" if current == "normal" else "normal"
+    set_chat_mode(telegram_id, new_mode)
+    return new_mode
+
+
+def add_user_memory(telegram_id, memory_text, category="detail"):
+    """
+    Stores a remembered detail or fact about the user.
+    Prevents duplicates and caps maximum memories stored at 25 per user.
+    """
+    memory_clean = memory_text.strip()
+    if not memory_clean:
+        return False
+        
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # Check if exact or near-duplicate memory already exists
+    cursor.execute("""
+        SELECT id, memory_text FROM user_memories
+        WHERE telegram_id = ?
+    """, (telegram_id,))
+    existing = cursor.fetchall()
+    
+    for row in existing:
+        ex_text = row["memory_text"].strip().lower()
+        if memory_clean.lower() in ex_text or ex_text in memory_clean.lower():
+            conn.close()
+            return False
+            
+    cursor.execute("""
+        INSERT INTO user_memories (telegram_id, category, memory_text)
+        VALUES (?, ?, ?)
+    """, (telegram_id, category, memory_clean))
+    
+    # Trim to last 25 items if over limit
+    cursor.execute("""
+        SELECT id FROM user_memories
+        WHERE telegram_id = ?
+        ORDER BY created_at DESC
+    """, (telegram_id,))
+    all_ids = [r["id"] for r in cursor.fetchall()]
+    
+    if len(all_ids) > 25:
+        to_delete = all_ids[25:]
+        cursor.executemany("DELETE FROM user_memories WHERE id = ?", [(i,) for i in to_delete])
+        
+    conn.commit()
+    conn.close()
+    return True
+
+
+def get_user_memories(telegram_id, limit=15):
+    """Retrieves recent remembered facts/details for a user."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT memory_text, category, created_at FROM user_memories
+        WHERE telegram_id = ?
+        ORDER BY created_at DESC
+        LIMIT ?
+    """, (telegram_id, limit))
+    rows = cursor.fetchall()
+    conn.close()
+    return [r["memory_text"] for r in rows]
+
+
+def clear_user_memories(telegram_id):
+    """Clears all stored memories for a user."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM user_memories WHERE telegram_id = ?", (telegram_id,))
+    conn.commit()
+    conn.close()
+    return True
 
