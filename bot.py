@@ -1088,9 +1088,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         logger.error(f"Error in handle_message for user {user.id}: {e}", exc_info=True)
+        err_msg = f"⚠️ Karin Connection Error ({type(e).__name__}): {str(e)[:150]}"
         await safe_send_reply(
             update,
-            "⚠️ Sorry, Karin is having trouble connecting right now. Please try again in a moment!"
+            err_msg
         )
 
 
