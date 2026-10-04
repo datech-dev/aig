@@ -357,6 +357,261 @@ async def handle_get_config(request):
         "bot_username": bot_username
     })
 
+async def handle_api_auth(request):
+    """API endpoint to authenticate or register a user for the Flutter mobile app."""
+    try:
+        data = await request.json()
+        user_id = data.get("user_id") or data.get("telegram_id")
+        username = data.get("username") or "app_user"
+        first_name = data.get("first_name") or "User"
+        
+        if not user_id:
+            return web.json_response({"success": False, "error": "Missing user_id"}, status=400)
+            
+        user_id = int(user_id)
+        database.setup_user(user_id, username, first_name)
+        return web.json_response({"success": True, "user_id": user_id, "username": username, "first_name": first_name})
+    except Exception as e:
+        logger.error(f"Error in handle_api_auth: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+
+async def handle_api_profile(request):
+    """API endpoint to fetch user profile, relationship level, XP, billing, and mode."""
+    user_id_str = request.query.get("user_id")
+    if not user_id_str:
+        return web.json_response({"error": "Missing user_id parameter"}, status=400)
+        
+    try:
+        user_id = int(user_id_str)
+        settings = database.get_user_settings(user_id)
+        if not settings:
+            database.setup_user(user_id, "app_user", "User")
+            settings = database.get_user_settings(user_id)
+            
+        persona_key = settings["active_persona"] if settings else "karin"
+        persona = config.PERSONAS.get(persona_key, config.PERSONAS["karin"])
+        xp = settings["relationship_xp"] if settings else 0
+        status = config.get_relationship_status(xp)
+        
+        u_nick = settings["user_nickname"] if (settings and settings.get("user_nickname")) else "User"
+        ai_nick = settings["ai_nickname"] if (settings and settings.get("ai_nickname")) else persona["name"]
+        
+        chat_mode = database.get_chat_mode(user_id)
+        memories = database.get_user_memories(user_id)
+        
+        billing = database.get_user_billing(user_id)
+        is_sub = database.is_chat_subscribed(user_id)
+        rem_free = max(0, config.FREE_MESSAGE_LIMIT - billing["free_messages_used"])
+        
+        return web.json_response({
+            "success": True,
+            "user_id": user_id,
+            "partner_name": persona["name"],
+            "partner_tagline": persona["tagline"],
+            "chat_mode": chat_mode,
+            "chat_mode_label": "Caring Best Friend" if chat_mode == "normal" else "Intimate Girlfriend",
+            "level": status["level"],
+            "title": status["title"],
+            "xp": xp,
+            "percent": status["percent"],
+            "user_nickname": u_nick,
+            "ai_nickname": ai_nick,
+            "memory_count": len(memories),
+            "is_subscribed": is_sub,
+            "remaining_free_messages": rem_free,
+            "image_credits": billing.get("image_credits", 0)
+        })
+    except Exception as e:
+        logger.error(f"Error in handle_api_profile: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+
+async def handle_api_history(request):
+    """API endpoint to fetch chat history for the mobile app."""
+    user_id_str = request.query.get("user_id")
+    if not user_id_str:
+        return web.json_response({"error": "Missing user_id parameter"}, status=400)
+        
+    try:
+        user_id = int(user_id_str)
+        settings = database.get_user_settings(user_id)
+        persona_key = settings["active_persona"] if settings else "karin"
+        history = database.get_chat_history(user_id, persona_key)
+        
+        # Clean up history for app UI
+        cleaned_history = []
+        for msg in history:
+            cleaned_history.append({
+                "role": msg["role"],
+                "content": msg["content"],
+                "timestamp": msg.get("timestamp", "")
+            })
+            
+        return web.json_response({"success": True, "history": cleaned_history})
+    except Exception as e:
+        logger.error(f"Error in handle_api_history: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+
+async def handle_api_chat(request):
+    """API endpoint to process user messages sent from the Flutter mobile app."""
+    try:
+        data = await request.json()
+        user_id = data.get("user_id")
+        text = data.get("message", "").strip()
+        
+        if not user_id or not text:
+            return web.json_response({"success": False, "error": "Missing user_id or message"}, status=400)
+            
+        user_id = int(user_id)
+        import ai_engine
+        import re
+        import html
+        
+        # Verify billing
+        is_subscribed = database.is_chat_subscribed(user_id)
+        billing = database.get_user_billing(user_id)
+        free_used = billing.get("free_messages_used", 0) if billing else 0
+        
+        if not is_subscribed and free_used >= config.FREE_MESSAGE_LIMIT:
+            settings = database.get_user_settings(user_id)
+            u_nick = settings["user_nickname"] if (settings and settings.get("user_nickname")) else "User"
+            paywall_text = (
+                f"🥺 Aww {u_nick}... Our free trial time just ran out for today!\n\n"
+                f"I was having so much fun chatting with you and getting close... I really don't want us to stop here! 💖\n\n"
+                f"Unlock 24 Hours of Unlimited Chat with me right now for just ₹50 so we can keep talking all day & night!"
+            )
+            return web.json_response({
+                "success": False,
+                "is_paywall": True,
+                "reply": paywall_text,
+                "remaining_free": 0
+            })
+
+        # Memory extraction & setting lookup
+        ai_engine.extract_and_save_user_memories(user_id, text)
+        settings = database.get_user_settings(user_id)
+        persona_key = settings["active_persona"] if settings else "karin"
+        persona = config.PERSONAS.get(persona_key, config.PERSONAS["karin"])
+        xp = settings["relationship_xp"] if settings else 0
+        
+        u_nick = settings["user_nickname"] if (settings and settings.get("user_nickname")) else "User"
+        ai_nick = settings["ai_nickname"] if (settings and settings.get("ai_nickname")) else persona["name"]
+        user_orientation = settings.get("user_orientation", "straight") if settings else "straight"
+        
+        chat_mode = database.get_chat_mode(user_id)
+        memories = database.get_user_memories(user_id)
+        history = database.get_chat_history(user_id, persona_key)
+        
+        # Generate response from AI engine
+        reply = await ai_engine.generate_response(
+            persona_key=persona_key,
+            relationship_xp=xp,
+            user_nickname=u_nick,
+            ai_nickname=ai_nick,
+            chat_history=history,
+            user_message=text,
+            user_orientation=user_orientation,
+            chat_mode=chat_mode,
+            memories=memories
+        )
+        
+        image_match = re.search(r'\[GENERATE_IMAGE:\s*(.*?)(?:\]|$)', reply, re.IGNORECASE | re.DOTALL)
+        cleaned_reply = reply
+        has_image = False
+        image_prompt = ""
+        
+        if image_match:
+            has_image = True
+            image_prompt = image_match.group(1).strip()
+            cleaned_reply = reply.replace(image_match.group(0), "").strip()
+            
+        gif_match = re.search(r'\[SEND_GIF:\s*(.*?)(?:\]|$)', cleaned_reply, re.IGNORECASE)
+        has_gif = False
+        gif_name = None
+        
+        if gif_match:
+            has_gif = True
+            query = gif_match.group(1).strip()
+            cleaned_reply = cleaned_reply.replace(gif_match.group(0), "").strip()
+            from bot import choose_gif
+            gif_name = choose_gif(query, user_id, persona_key)
+            if not gif_name:
+                has_gif = False
+                
+        if not is_subscribed:
+            database.increment_free_messages(user_id)
+            new_free_used = free_used + 1
+            remaining = max(0, config.FREE_MESSAGE_LIMIT - new_free_used)
+            if remaining > 0 and remaining <= 3:
+                cleaned_reply += f"\n\n(⌛ {remaining} free trial message{'s' if remaining > 1 else ''} remaining today)"
+        else:
+            remaining = 999
+            
+        # Log to DB
+        database.add_chat_message(user_id, persona_key, "user", text)
+        database.add_chat_message(user_id, persona_key, "assistant", cleaned_reply)
+        
+        # Add XP
+        leveled_up, new_level, new_title = database.add_xp(user_id, amount=10)
+        
+        return web.json_response({
+            "success": True,
+            "reply": cleaned_reply,
+            "has_image": has_image,
+            "image_prompt": image_prompt,
+            "has_gif": has_gif,
+            "gif_name": gif_name,
+            "remaining_free": remaining,
+            "leveled_up": leveled_up,
+            "new_level": new_level,
+            "new_title": new_title
+        })
+    except Exception as e:
+        logger.error(f"Error in handle_api_chat: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+
+async def handle_api_toggle_mode(request):
+    """API endpoint to toggle chat mode for mobile app."""
+    try:
+        data = await request.json()
+        user_id = data.get("user_id")
+        if not user_id:
+            return web.json_response({"success": False, "error": "Missing user_id"}, status=400)
+            
+        user_id = int(user_id)
+        new_mode = database.toggle_chat_mode(user_id)
+        return web.json_response({
+            "success": True,
+            "chat_mode": new_mode,
+            "chat_mode_label": "Caring Best Friend" if new_mode == "normal" else "Intimate Girlfriend"
+        })
+    except Exception as e:
+        logger.error(f"Error in handle_api_toggle_mode: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+
+async def handle_api_memories(request):
+    """API endpoint to fetch or clear memories."""
+    if request.method == "GET":
+        user_id_str = request.query.get("user_id")
+        if not user_id_str:
+            return web.json_response({"error": "Missing user_id parameter"}, status=400)
+        user_id = int(user_id_str)
+        memories = database.get_user_memories(user_id)
+        return web.json_response({"success": True, "memories": memories})
+    elif request.method == "POST":
+        data = await request.json()
+        user_id = data.get("user_id")
+        action = data.get("action")
+        if action == "clear" and user_id:
+            database.clear_user_memories(int(user_id))
+            return web.json_response({"success": True, "message": "Memories cleared"})
+        return web.json_response({"success": False, "error": "Invalid action or user_id"}, status=400)
+
+
 async def start_webhook_server(application, port=8080):
     """
     Starts the aiohttp webhook server on the specified port.
@@ -368,6 +623,16 @@ async def start_webhook_server(application, port=8080):
     app.router.add_post('/api/create-order', handle_create_order)
     app.router.add_post('/api/verify-payment', handle_verify_payment)
     app.router.add_post('/webhook/razorpay', handle_razorpay_webhook)
+    
+    # Flutter Mobile App REST API Routes
+    app.router.add_post('/api/auth', handle_api_auth)
+    app.router.add_get('/api/profile', handle_api_profile)
+    app.router.add_get('/api/history', handle_api_history)
+    app.router.add_post('/api/chat', handle_api_chat)
+    app.router.add_post('/api/mode/toggle', handle_api_toggle_mode)
+    app.router.add_get('/api/memories', handle_api_memories)
+    app.router.add_post('/api/memories', handle_api_memories)
+    
     app.router.add_static('/assets', 'assets')
     
     # Store reference to telegram bot application to allow sending messages in routes
@@ -378,5 +643,5 @@ async def start_webhook_server(application, port=8080):
     
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
-    logger.info(f"Razorpay webhook server successfully running on port {port}")
+    logger.info(f"Razorpay webhook & Mobile REST API server running on port {port}")
     return runner
