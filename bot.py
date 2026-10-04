@@ -1,3 +1,4 @@
+import sys
 import logging
 import html
 import os
@@ -16,6 +17,14 @@ from telegram.ext import (
     filters,
 )
 from telegram.constants import ChatAction
+
+# UTF-8 encoding configuration for Windows system compatibility
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
 
 # Import local modules
 import config
@@ -875,11 +884,12 @@ async def safe_send_reply(update: Update, text: str, reply_markup=None, parse_mo
     try:
         return await update.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
     except Exception as e:
-        logger.warning(f"Failed to send formatted message: {e}. Retrying as plain text.")
+        err_str = str(e)[:100]
+        logger.warning(f"Failed to send formatted message: {err_str}. Retrying as plain text.")
         try:
             return await update.message.reply_text(text, reply_markup=reply_markup, parse_mode=None)
         except Exception as e2:
-            logger.error(f"Failed to send plain text message fallback: {e2}")
+            logger.error(f"Failed to send plain text message fallback: {str(e2)[:100]}")
             raise e2
 
 
