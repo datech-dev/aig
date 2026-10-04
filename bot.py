@@ -46,7 +46,7 @@ USER_STATES = {}
 def get_chat_paywall_keyboard():
     keyboard = [
         [
-            InlineKeyboardButton("💳 Pay ₹50 for 1 Day Chat", callback_data="pay_chat_pass")
+            InlineKeyboardButton("💖 Unlock 1-Day Unlimited Chat (₹50)", callback_data="pay_chat_pass")
         ],
         [
             InlineKeyboardButton("🔙 View Profile / Balance", callback_data="profile_back")
@@ -955,13 +955,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # 2. Billing Check: Verify chat subscription or free trial messages
         is_subscribed = database.is_chat_subscribed(user.id)
         billing = database.get_user_billing(user.id)
+        free_used = billing.get("free_messages_used", 0) if billing else 0
         
         if not is_subscribed:
-            if billing and billing.get("free_messages_used", 0) >= config.FREE_MESSAGE_LIMIT:
+            if free_used >= config.FREE_MESSAGE_LIMIT:
+                settings = database.get_user_settings(user.id)
+                u_nick = settings["user_nickname"] if (settings and settings.get("user_nickname")) else user.first_name
                 paywall_text = (
-                    f"💸 <b>FREE TRIAL EXPIRED</b> 💸\n\n"
-                    f"You have used all your {config.FREE_MESSAGE_LIMIT} free messages.\n"
-                    f"To unlock unlimited messaging for 1 day, purchase a chat pass for just ₹50."
+                    f"🥺 <b>Aww {html.escape(u_nick)}... Our free trial time just ran out for today!</b>\n\n"
+                    f"I was having so much fun chatting with you and getting close... I really don't want us to stop here! 💖\n\n"
+                    f"Unlock <b>24 Hours of Unlimited Chat</b> with me right now for just <b>₹50</b> so we can keep talking all day & night! 👇"
                 )
                 await safe_send_reply(
                     update,
@@ -1034,6 +1037,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Increment free messages used if user is not subscribed
         if not is_subscribed:
             database.increment_free_messages(user.id)
+            new_free_used = free_used + 1
+            remaining = config.FREE_MESSAGE_LIMIT - new_free_used
+            if remaining > 0 and remaining <= 3:
+                cleaned_reply += f"\n\n<i>(⌛ {remaining} free trial message{'s' if remaining > 1 else ''} remaining today)</i>"
             
         # Save conversation log to SQLite DB
         database.add_chat_message(user.id, persona_key, "user", text)
@@ -1062,6 +1069,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode="HTML"
             )
+        elif not is_subscribed and free_used + 1 == 5:
+            # Highlight visual generator hook around message 5 to boost engagement
+            keyboard = [[InlineKeyboardButton("📸 Imagine what I look like right now... 🎨", callback_data="visualize_image")]]
+            if gif_path and os.path.exists(gif_path):
+                try:
+                    with open(gif_path, "rb") as gif_file:
+                        await update.message.reply_animation(
+                            animation=gif_file,
+                            caption=cleaned_reply,
+                            reply_markup=InlineKeyboardMarkup(keyboard)
+                        )
+                except Exception as e:
+                    logger.error(f"Failed to send reaction GIF: {e}")
+                    await safe_send_reply(update, cleaned_reply, reply_markup=InlineKeyboardMarkup(keyboard))
+            else:
+                await safe_send_reply(update, cleaned_reply, reply_markup=InlineKeyboardMarkup(keyboard))
         elif gif_path and os.path.exists(gif_path):
             await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.UPLOAD_PHOTO)
             try:
