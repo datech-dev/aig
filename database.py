@@ -153,10 +153,16 @@ def setup_user(telegram_id, username, first_name):
 
     # Initialize user billing if not exists
     now_str = datetime.utcnow().isoformat()
-    cursor.execute("""
-        INSERT OR IGNORE INTO user_billing (telegram_id, free_messages_used, chat_expires_at, image_credits, last_free_message_reset)
-        VALUES (?, 0, NULL, ?, ?)
-    """, (telegram_id, INITIAL_IMAGE_CREDITS, now_str))
+    try:
+        cursor.execute("""
+            INSERT OR IGNORE INTO user_billing (telegram_id, free_messages_used, chat_expires_at, image_credits, last_free_message_reset)
+            VALUES (?, 0, NULL, ?, ?)
+        """, (telegram_id, INITIAL_IMAGE_CREDITS, now_str))
+    except sqlite3.OperationalError:
+        cursor.execute("""
+            INSERT OR IGNORE INTO user_billing (telegram_id, free_messages_used, chat_expires_at, image_credits)
+            VALUES (?, 0, NULL, ?)
+        """, (telegram_id, INITIAL_IMAGE_CREDITS))
     
     # Initialize settings/profiles for ALL default personas separately
     import random
@@ -366,10 +372,16 @@ def get_user_billing(telegram_id):
     now_str = now.isoformat()
 
     if not row:
-        cursor.execute("""
-            INSERT OR IGNORE INTO user_billing (telegram_id, free_messages_used, chat_expires_at, image_credits, last_free_message_reset)
-            VALUES (?, 0, NULL, ?, ?)
-        """, (telegram_id, INITIAL_IMAGE_CREDITS, now_str))
+        try:
+            cursor.execute("""
+                INSERT OR IGNORE INTO user_billing (telegram_id, free_messages_used, chat_expires_at, image_credits, last_free_message_reset)
+                VALUES (?, 0, NULL, ?, ?)
+            """, (telegram_id, INITIAL_IMAGE_CREDITS, now_str))
+        except sqlite3.OperationalError:
+            cursor.execute("""
+                INSERT OR IGNORE INTO user_billing (telegram_id, free_messages_used, chat_expires_at, image_credits)
+                VALUES (?, 0, NULL, ?)
+            """, (telegram_id, INITIAL_IMAGE_CREDITS))
         conn.commit()
         cursor.execute("SELECT * FROM user_billing WHERE telegram_id = ?", (telegram_id,))
         row = cursor.fetchone()
@@ -382,29 +394,33 @@ def get_user_billing(telegram_id):
     last_reset_val = billing_dict.get("last_free_message_reset")
     should_reset = False
     
-    if not last_reset_val:
-        should_reset = True
-    else:
-        try:
-            if isinstance(last_reset_val, str):
-                last_reset_dt = datetime.fromisoformat(last_reset_val.replace("Z", "").replace(" ", "T"))
-            else:
-                last_reset_dt = last_reset_val
-            if (now - last_reset_dt) >= timedelta(days=7):
-                should_reset = True
-        except Exception:
+    if "last_free_message_reset" in billing_dict:
+        if not last_reset_val:
             should_reset = True
-            
-    if should_reset:
-        cursor.execute("""
-            UPDATE user_billing
-            SET free_messages_used = 0, last_free_message_reset = ?
-            WHERE telegram_id = ?
-        """, (now_str, telegram_id))
-        conn.commit()
-        billing_dict["free_messages_used"] = 0
-        billing_dict["last_free_message_reset"] = now_str
-        
+        else:
+            try:
+                if isinstance(last_reset_val, str):
+                    last_reset_dt = datetime.fromisoformat(last_reset_val.replace("Z", "").replace(" ", "T"))
+                else:
+                    last_reset_dt = last_reset_val
+                if (now - last_reset_dt) >= timedelta(days=7):
+                    should_reset = True
+            except Exception:
+                should_reset = True
+                
+        if should_reset:
+            try:
+                cursor.execute("""
+                    UPDATE user_billing
+                    SET free_messages_used = 0, last_free_message_reset = ?
+                    WHERE telegram_id = ?
+                """, (now_str, telegram_id))
+                conn.commit()
+                billing_dict["free_messages_used"] = 0
+                billing_dict["last_free_message_reset"] = now_str
+            except sqlite3.OperationalError:
+                pass
+                
     conn.close()
     return billing_dict
 
