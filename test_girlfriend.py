@@ -14,13 +14,23 @@ class TestGirlfriendApp(unittest.TestCase):
     
     @classmethod
     def setUpClass(cls):
-        # Delete old database to ensure clean run
-        if os.path.exists("girlfriend.db"):
+        # Use isolated test database so production girlfriend.db is never deleted
+        database.DB_PATH = "test_girlfriend.db"
+        if os.path.exists("test_girlfriend.db"):
             try:
-                os.remove("girlfriend.db")
+                os.remove("test_girlfriend.db")
             except OSError:
                 pass
         database.init_db()
+
+    @classmethod
+    def tearDownClass(cls):
+        database.DB_PATH = "girlfriend.db"
+        if os.path.exists("test_girlfriend.db"):
+            try:
+                os.remove("test_girlfriend.db")
+            except OSError:
+                pass
         
     def test_01_config_loading(self):
         """Verify settings and level thresholds are defined correctly."""

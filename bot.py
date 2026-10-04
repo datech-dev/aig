@@ -867,196 +867,221 @@ def choose_gif(query: str, telegram_id: int, persona_key: str, user_text: str = 
     return selected_gif
 
 
+async def safe_send_reply(update: Update, text: str, reply_markup=None, parse_mode="HTML"):
+    """
+    Sends a text reply to update.message.
+    Falls back to sending plain text if Telegram fails to parse HTML formatting.
+    """
+    try:
+        return await update.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+    except Exception as e:
+        logger.warning(f"Failed to send formatted message: {e}. Retrying as plain text.")
+        try:
+            return await update.message.reply_text(text, reply_markup=reply_markup, parse_mode=None)
+        except Exception as e2:
+            logger.error(f"Failed to send plain text message fallback: {e2}")
+            raise e2
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Processes all regular text messages, checking for paywall and image-generation triggers."""
     user = update.effective_user
-    text = update.message.text
-    
-    # Initialize user settings in case
-    database.setup_user(user.id, user.username, user.first_name)
-    
-    # 1. State Machine Check: Onboarding or Nickname Settings
-    if user.id in USER_STATES:
-        state = USER_STATES[user.id]
+    if not update.message or not update.message.text:
+        return
         
-        if state == "AWAITING_START_NICKNAME":
-            database.update_nicknames(user.id, user_nickname=text)
-            USER_STATES[user.id] = "AWAITING_START_ORIENTATION"
-            keyboard = [
-                [
-                    InlineKeyboardButton("Straight (Boyfriend ♂️)", callback_data="set_orientation_straight"),
-                    InlineKeyboardButton("Lesbian (Girlfriend ♀️)", callback_data="set_orientation_lesbian")
+    text = update.message.text.strip()
+    
+    try:
+        # Initialize user settings in case
+        database.setup_user(user.id, user.username, user.first_name)
+        
+        # 1. State Machine Check: Onboarding or Nickname Settings
+        if user.id in USER_STATES:
+            state = USER_STATES[user.id]
+            
+            if state == "AWAITING_START_NICKNAME":
+                database.update_nicknames(user.id, user_nickname=text)
+                USER_STATES[user.id] = "AWAITING_START_ORIENTATION"
+                keyboard = [
+                    [
+                        InlineKeyboardButton("Straight (Boyfriend ♂️)", callback_data="set_orientation_straight"),
+                        InlineKeyboardButton("Lesbian (Girlfriend ♀️)", callback_data="set_orientation_lesbian")
+                    ]
                 ]
-            ]
-            await update.message.reply_text(
-                f"Great! I will call you <b>{html.escape(text)}</b>. 🥰\n\n"
-                "Next, please select your relationship style:",
+                await safe_send_reply(
+                    update,
+                    f"Great! I will call you <b>{html.escape(text)}</b>. 🥰\n\n"
+                    "Next, please select your relationship style using the buttons below, or simply send your next message to begin!",
+                    reply_markup=InlineKeyboardMarkup(keyboard),
+                    parse_mode="HTML"
+                )
+                return
+                
+            elif state == "AWAITING_START_ORIENTATION":
+                # User sent a text message instead of clicking orientation button. Default to straight and proceed to chat!
+                USER_STATES.pop(user.id, None)
+                database.update_user_orientation(user.id, "straight")
+                
+            elif state == "AWAITING_USER_NICKNAME":
+                database.update_nicknames(user.id, user_nickname=text)
+                USER_STATES.pop(user.id, None)
+                await safe_send_reply(
+                    update,
+                    f"✅ Nickname updated! I will now call you <b>{html.escape(text)}</b>.",
+                    parse_mode="HTML"
+                )
+                return
+                
+            elif state == "AWAITING_AI_NICKNAME":
+                database.update_nicknames(user.id, ai_nickname=text)
+                USER_STATES.pop(user.id, None)
+                await safe_send_reply(
+                    update,
+                    f"✅ Nickname updated! I will refer to myself as <b>{html.escape(text)}</b>.",
+                    parse_mode="HTML"
+                )
+                return
+
+        # 2. Billing Check: Verify chat subscription or free trial messages
+        is_subscribed = database.is_chat_subscribed(user.id)
+        billing = database.get_user_billing(user.id)
+        
+        if not is_subscribed:
+            if billing and billing.get("free_messages_used", 0) >= config.FREE_MESSAGE_LIMIT:
+                paywall_text = (
+                    f"💸 <b>FREE TRIAL EXPIRED</b> 💸\n\n"
+                    f"You have used all your {config.FREE_MESSAGE_LIMIT} free messages.\n"
+                    f"To unlock unlimited messaging for 1 day, purchase a chat pass for just ₹50."
+                )
+                await safe_send_reply(
+                    update,
+                    paywall_text,
+                    reply_markup=get_chat_paywall_keyboard(),
+                    parse_mode="HTML"
+                )
+                return
+
+        # 3. Regular Conversation Flow
+        # Show typing indicator
+        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+        
+        settings = database.get_user_settings(user.id)
+        persona_key = settings["active_persona"] if settings else "karin"
+        persona = config.PERSONAS.get(persona_key, config.PERSONAS["karin"])
+        xp = settings["relationship_xp"] if settings else 0
+        
+        u_nick = settings["user_nickname"] if (settings and settings["user_nickname"]) else user.first_name
+        ai_nick = settings["ai_nickname"] if (settings and settings["ai_nickname"]) else persona["name"]
+        user_orientation = settings.get("user_orientation", "straight") if settings else "straight"
+        
+        # Get chat history for Karin
+        history = database.get_chat_history(user.id, persona_key)
+        
+        # Generate response from Venice AI
+        reply = await ai_engine.generate_response(
+            persona_key=persona_key,
+            relationship_xp=xp,
+            user_nickname=u_nick,
+            ai_nickname=ai_nick,
+            chat_history=history,
+            user_message=text,
+            user_orientation=user_orientation
+        )
+        
+        # Check if the AI's reply contains an image generation tag [GENERATE_IMAGE: prompt]
+        image_match = re.search(r'\[GENERATE_IMAGE:\s*(.*?)(?:\]|$)', reply, re.IGNORECASE | re.DOTALL)
+        
+        cleaned_reply = reply
+        has_image = False
+        image_prompt = ""
+        
+        if image_match:
+            has_image = True
+            image_prompt = image_match.group(1).strip()
+            cleaned_reply = reply.replace(image_match.group(0), "").strip()
+            
+        # Check if the AI's reply contains a GIF reaction tag [SEND_GIF: name]
+        gif_match = re.search(r'\[SEND_GIF:\s*(.*?)(?:\]|$)', cleaned_reply, re.IGNORECASE)
+        has_gif = False
+        gif_name = None
+        
+        if gif_match:
+            has_gif = True
+            query = gif_match.group(1).strip()
+            cleaned_reply = cleaned_reply.replace(gif_match.group(0), "").strip()
+            gif_name = choose_gif(query, user.id, persona_key)
+            if not gif_name:
+                has_gif = False
+        else:
+            if random.random() < 0.10:
+                gif_name = choose_gif(None, user.id, persona_key, user_text=text, assistant_text=cleaned_reply)
+                if gif_name:
+                    has_gif = True
+                    
+        if not cleaned_reply and (has_image or has_gif):
+            cleaned_reply = "Here is something for you... 😉"
+            
+        # Increment free messages used if user is not subscribed
+        if not is_subscribed:
+            database.increment_free_messages(user.id)
+            
+        # Save conversation log to SQLite DB
+        database.add_chat_message(user.id, persona_key, "user", text)
+        database.add_chat_message(user.id, persona_key, "assistant", cleaned_reply)
+        
+        # Increment relationship XP
+        leveled_up, new_level, new_title = database.add_xp(user.id, amount=10)
+        
+        # Resolve GIF path if matched
+        gif_path = None
+        if has_gif and gif_name:
+            gif_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gifs")
+            if os.path.exists(gif_dir):
+                try:
+                    possible_files = [f for f in os.listdir(gif_dir) if os.path.splitext(f)[0].lower() == gif_name.lower() and f.lower().endswith('.gif')]
+                    if possible_files:
+                        gif_path = os.path.join(gif_dir, possible_files[0])
+                except Exception as e:
+                    logger.error(f"Error listing gifs directory: {e}")
+                    
+        if has_image:
+            keyboard = [[InlineKeyboardButton("Visualize it? 🎨", callback_data="visualize_image")]]
+            await safe_send_reply(
+                update,
+                cleaned_reply,
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode="HTML"
             )
-            return
-            
-        elif state == "AWAITING_START_ORIENTATION":
-            await update.message.reply_text(
-                "⚠️ Please select your relationship style using the buttons above before we begin!"
-            )
-            return
-            
-        elif state == "AWAITING_USER_NICKNAME":
-            database.update_nicknames(user.id, user_nickname=text)
-            USER_STATES.pop(user.id, None)
-            await update.message.reply_text(
-                f"✅ Nickname updated! I will now call you <b>{html.escape(text)}</b>.",
-                parse_mode="HTML"
-            )
-            return
-            
-        elif state == "AWAITING_AI_NICKNAME":
-            database.update_nicknames(user.id, ai_nickname=text)
-            USER_STATES.pop(user.id, None)
-            await update.message.reply_text(
-                f"✅ Nickname updated! I will refer to myself as <b>{html.escape(text)}</b>.",
-                parse_mode="HTML"
-            )
-            return
-
-    # 2. Billing Check: Verify chat subscription or free trial messages
-    is_subscribed = database.is_chat_subscribed(user.id)
-    billing = database.get_user_billing(user.id)
-    
-    if not is_subscribed:
-        if billing["free_messages_used"] >= config.FREE_MESSAGE_LIMIT:
-            paywall_text = (
-                f"💸 <b>FREE TRIAL EXPIRED</b> 💸\n\n"
-                f"You have used all your {config.FREE_MESSAGE_LIMIT} free messages.\n"
-                f"To unlock unlimited messaging for 1 day, purchase a chat pass for just ₹50."
-            )
-            await update.message.reply_text(
-                paywall_text,
-                reply_markup=get_chat_paywall_keyboard(),
-                parse_mode="HTML"
-            )
-            return
-
-    # 3. Regular Conversation Flow
-    # Show typing indicator
-    await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
-    
-    settings = database.get_user_settings(user.id)
-    persona_key = settings["active_persona"]
-    persona = config.PERSONAS[persona_key]
-    xp = settings["relationship_xp"]
-    
-    u_nick = settings["user_nickname"] if settings["user_nickname"] else user.first_name
-    ai_nick = settings["ai_nickname"] if settings["ai_nickname"] else persona["name"]
-    
-    # Get chat history for Karin
-    history = database.get_chat_history(user.id, persona_key)
-    
-    # Generate response from Venice AI
-    reply = await ai_engine.generate_response(
-        persona_key=persona_key,
-        relationship_xp=xp,
-        user_nickname=u_nick,
-        ai_nickname=ai_nick,
-        chat_history=history,
-        user_message=text
-    )
-    
-    # Check if the AI's reply contains an image generation tag [GENERATE_IMAGE: prompt]
-    # We use a pattern that matches even if the closing bracket ']' was truncated at the end of the text.
-    image_match = re.search(r'\[GENERATE_IMAGE:\s*(.*?)(?:\]|$)', reply, re.IGNORECASE | re.DOTALL)
-
-    
-    cleaned_reply = reply
-    has_image = False
-    image_prompt = ""
-    
-    if image_match:
-        has_image = True
-        image_prompt = image_match.group(1).strip()
-        # Remove the tag from the text response
-        cleaned_reply = reply.replace(image_match.group(0), "").strip()
-        
-    # Check if the AI's reply contains a GIF reaction tag [SEND_GIF: name]
-    gif_match = re.search(r'\[SEND_GIF:\s*(.*?)(?:\]|$)', cleaned_reply, re.IGNORECASE)
-    has_gif = False
-    gif_name = None
-    
-    if gif_match:
-        has_gif = True
-        query = gif_match.group(1).strip()
-        cleaned_reply = cleaned_reply.replace(gif_match.group(0), "").strip()
-        # Resolve the best matching GIF for the explicit tag query
-        gif_name = choose_gif(query, user.id, persona_key)
-        if not gif_name:
-            has_gif = False
-    else:
-        # Heuristic fallback matching (triggered only 10% of the time to avoid over-sending)
-        if random.random() < 0.10:
-            gif_name = choose_gif(None, user.id, persona_key, user_text=text, assistant_text=cleaned_reply)
-            if gif_name:
-                has_gif = True
-                
-    # If LLM produces an empty text after stripping tag, give it a baseline response
-    if not cleaned_reply and (has_image or has_gif):
-        cleaned_reply = "Here is something for you... 😉"
-        
-    # Increment free messages used if user is not subscribed
-    if not is_subscribed:
-        database.increment_free_messages(user.id)
-        
-    # Save conversation log to SQLite DB
-    database.add_chat_message(user.id, persona_key, "user", text)
-    database.add_chat_message(user.id, persona_key, "assistant", cleaned_reply)
-    
-    # Increment relationship XP
-    leveled_up, new_level, new_title = database.add_xp(user.id, amount=10)
-    
-    # Resolve GIF path if matched
-    gif_path = None
-    if has_gif and gif_name:
-        gif_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gifs")
-        if os.path.exists(gif_dir):
+        elif gif_path and os.path.exists(gif_path):
+            await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.UPLOAD_PHOTO)
             try:
-                possible_files = [f for f in os.listdir(gif_dir) if os.path.splitext(f)[0].lower() == gif_name.lower() and f.lower().endswith('.gif')]
-                if possible_files:
-                    gif_path = os.path.join(gif_dir, possible_files[0])
+                with open(gif_path, "rb") as gif_file:
+                    await update.message.reply_animation(
+                        animation=gif_file,
+                        caption=cleaned_reply
+                    )
             except Exception as e:
-                logger.error(f"Error listing gifs directory: {e}")
-                
-    if has_image:
-        keyboard = [[InlineKeyboardButton("Visualize it? 🎨", callback_data="visualize_image")]]
-        await update.message.reply_text(
-            cleaned_reply,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="HTML"
+                logger.error(f"Failed to send reaction GIF: {e}")
+                await safe_send_reply(update, cleaned_reply)
+        else:
+            await safe_send_reply(update, cleaned_reply)
+            
+        # Trigger level up banner if they crossed a threshold
+        if leveled_up:
+            level_up_card = (
+                f"🎉 <b>CONGRATULATIONS! LEVEL UP!</b> 🎉\n\n"
+                f"Your bond with {ai_nick} has grown stronger!\n"
+                f"You have reached <b>Level {new_level}</b>: <b>{new_title}</b>!\n\n"
+                f"<i>New topics and dialogues are now unlocked in her personality matrix.</i>"
+            )
+            await safe_send_reply(update, level_up_card, parse_mode="HTML")
+
+    except Exception as e:
+        logger.error(f"Error in handle_message for user {user.id}: {e}", exc_info=True)
+        await safe_send_reply(
+            update,
+            "⚠️ Sorry, Karin is having trouble connecting right now. Please try again in a moment!"
         )
-    elif gif_path and os.path.exists(gif_path):
-        # Send GIF reaction (free)
-        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.UPLOAD_PHOTO)
-        try:
-            with open(gif_path, "rb") as gif_file:
-                await update.message.reply_animation(
-                    animation=gif_file,
-                    caption=cleaned_reply
-                )
-        except Exception as e:
-            logger.error(f"Failed to send reaction GIF: {e}")
-            await update.message.reply_text(cleaned_reply)
-    else:
-        # Send text response normally
-        await update.message.reply_text(cleaned_reply)
-        
-    # Trigger level up banner if they crossed a threshold
-    if leveled_up:
-        level_up_card = (
-            f"🎉 <b>CONGRATULATIONS! LEVEL UP!</b> 🎉\n\n"
-            f"Your bond with {ai_nick} has grown stronger!\n"
-            f"You have reached <b>Level {new_level}</b>: <b>{new_title}</b>!\n\n"
-            f"<i>New topics and dialogues are now unlocked in her personality matrix.</i>"
-        )
-        await update.message.reply_text(level_up_card, parse_mode="HTML")
 
 
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
