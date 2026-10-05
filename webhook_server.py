@@ -649,6 +649,8 @@ async def handle_checkout_page(request):
             <span id="btn-text">Pay ₹50 via Instamojo</span>
         </button>
 
+        <a id="sandbox-btn" style="display:none; width: 100%; background: rgba(234, 179, 8, 0.15); border: 1px solid rgba(234, 179, 8, 0.4); color: #fde047; padding: 14px; border-radius: 14px; font-size: 14px; font-weight: 600; text-decoration: none; margin-top: 12px; box-sizing: border-box;" href="#">🧪 Test in Sandbox Mode</a>
+
         <div class="secure-note">
             🔒 256-bit Encrypted SSL Gateway (UPI / Cards / NetBanking)
         </div>
@@ -669,11 +671,13 @@ async def handle_checkout_page(request):
 
         async function startPayment() {{
             const errBox = document.getElementById('error-box');
+            const sandboxBtn = document.getElementById('sandbox-btn');
             const payBtn = document.getElementById('pay-btn');
             const spinner = document.getElementById('spinner');
             const btnText = document.getElementById('btn-text');
 
             errBox.style.display = 'none';
+            sandboxBtn.style.display = 'none';
 
             if (!tgUserId) {{
                 errBox.innerText = "Telegram User ID missing. Please open checkout from Telegram bot.";
@@ -719,6 +723,9 @@ async def handle_checkout_page(request):
                 btnText.innerText = 'Pay ₹50 via Instamojo';
                 errBox.innerText = err.message || "Failed to initiate payment gateway.";
                 errBox.style.display = 'block';
+                
+                sandboxBtn.href = `/checkout/instamojo/mock_ui?user_id=${{tgUserId}}&item_type=${{itemType}}`;
+                sandboxBtn.style.display = 'inline-block';
             }}
         }}
     </script>
