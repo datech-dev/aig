@@ -19,11 +19,13 @@ jobs:
           cd /var/www/aig
           git fetch origin main
           git reset --hard origin/main
-          python3 -m venv .venv
+          sudo apt-get update && sudo apt-get install -y python3-pip python3-venv nginx certbot python3-certbot-nginx
+          python3 -m venv .venv || true
           .venv/bin/pip install --upgrade pip
           .venv/bin/pip install -r requirements.txt
           chmod +x setup_nginx_ssl.sh
-          bash setup_nginx_ssl.sh
+          bash setup_nginx_ssl.sh || true
           sudo cp karin-bot.service /etc/systemd/system/karin-bot.service || true
           sudo systemctl daemon-reload
           sudo systemctl restart karin-bot
+          sudo systemctl status karin-bot --no-pager || true
