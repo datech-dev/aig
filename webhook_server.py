@@ -17,13 +17,13 @@ async def create_instamojo_payment_request(user_id: int, item_type: str = "chat_
     endpoint = config.INSTAMOJO_ENDPOINT.rstrip("/") + "/payment-requests/"
     api_key = (config.INSTAMOJO_API_KEY or "").strip()
     auth_token = (config.INSTAMOJO_AUTH_TOKEN or "").strip()
-    base_url = (config.WEB_CHECKOUT_URL or "http://zetagirl.zetalink.cloud:8080").rstrip("/")
+    base_url = (config.WEB_CHECKOUT_URL or "https://zetagirl.zetalink.cloud").rstrip("/")
     
     if not api_key or not auth_token or api_key == "YOUR_INSTAMOJO_API_KEY" or auth_token == "YOUR_INSTAMOJO_AUTH_TOKEN":
         import time
         mock_id = f"PR_mock_{user_id}_{int(time.time())}"
-        mock_url = f"{base_url}/checkout/instamojo/mock?order_id={mock_id}&user_id={user_id}&item_type={item_type}"
-        return mock_id, mock_url, "Missing API credentials"
+        mock_url = f"{base_url}/checkout/instamojo/mock_ui?order_id={mock_id}&user_id={user_id}&item_type={item_type}"
+        return mock_id, mock_url, "Missing live Instamojo credentials"
 
     headers = {
         "X-Api-Key": api_key,
@@ -31,7 +31,7 @@ async def create_instamojo_payment_request(user_id: int, item_type: str = "chat_
     }
     
     purpose = "Karin AI 1-Day Chat Pass" if item_type == "chat_pass" else "Karin AI 10 Image Credits"
-    redirect_url = f"{base_url}/checkout/instamojo/callback"
+    redirect_url = f"{base_url}/checkout/instamojo/callback?user_id={user_id}"
     webhook_url = f"{base_url}/webhook/instamojo"
     
     data = {
@@ -54,30 +54,23 @@ async def create_instamojo_payment_request(user_id: int, item_type: str = "chat_
                     resp_data = json.loads(resp_text)
                 except Exception:
                     logger.error(f"Instamojo API non-JSON response ({resp.status}): {resp_text[:200]}")
-                    import time
-                    mock_id = f"PR_mock_{user_id}_{int(time.time())}"
-                    mock_url = f"{base_url}/checkout/instamojo/mock?order_id={mock_id}&user_id={user_id}&item_type={item_type}"
-                    return mock_id, mock_url, f"API HTTP {resp.status}"
+                    return None, None, f"Instamojo API HTTP Error {resp.status}"
 
                 if resp.status in (200, 201) and resp_data.get("success"):
                     pr = resp_data.get("payment_request", {})
                     longurl = pr.get("longurl")
                     if not longurl:
-                        longurl = f"{base_url}/checkout/instamojo/mock?order_id={pr.get('id')}&user_id={user_id}&item_type={item_type}"
+                        import time
+                        mock_id = f"PR_mock_{user_id}_{int(time.time())}"
+                        longurl = f"{base_url}/checkout/instamojo/mock_ui?order_id={mock_id}&user_id={user_id}&item_type={item_type}"
                     return pr.get("id"), longurl, None
                 else:
                     err_msg = resp_data.get("message") or resp_data.get("error") or str(resp_data)
                     logger.error(f"Instamojo API Error creating payment request: {err_msg}")
-                    import time
-                    mock_id = f"PR_mock_{user_id}_{int(time.time())}"
-                    mock_url = f"{base_url}/checkout/instamojo/mock?order_id={mock_id}&user_id={user_id}&item_type={item_type}"
-                    return mock_id, mock_url, f"Instamojo Error: {err_msg}"
+                    return None, None, f"Instamojo API Error: {err_msg}"
     except Exception as e:
         logger.error(f"HTTP exception during Instamojo API call: {e}")
-        import time
-        mock_id = f"PR_mock_{user_id}_{int(time.time())}"
-        mock_url = f"{base_url}/checkout/instamojo/mock?order_id={mock_id}&user_id={user_id}&item_type={item_type}"
-        return mock_id, mock_url, str(e)
+        return None, None, str(e)
 
 
 async def handle_instamojo_webhook(request):
@@ -202,6 +195,10 @@ async def handle_create_order(request):
         return web.json_response({"error": "Invalid user_id or amount"}, status=400)
         
     order_id, pay_url, err = await create_instamojo_payment_request(user_id, item_type, amount_inr=amount_inr)
+    
+    if not pay_url:
+        return web.json_response({"error": err or "Failed to create Instamojo payment request"}, status=400)
+        
     database.create_payment_order(user_id, order_id=order_id, amount=int(amount_inr * 100), item_type=item_type)
     
     return web.json_response({
@@ -686,31 +683,42 @@ async def handle_checkout_page(request):
 
             payBtn.disabled = true;
             spinner.style.display = 'block';
-            btnText.innerText = 'Connecting to Gateway...';
+            btnText.innerText = 'Connecting to Instamojo...';
 
             try {{
-                const res = await fetch(`/checkout/initiate?user_id=${{tgUserId}}&item_type=${{itemType}}`, {{
-                    headers: {{ 'Accept': 'application/json' }}
+                const res = await fetch('/api/create-order', {{
+                    method: 'POST',
+                    headers: {{ 'Content-Type': 'application/json' }},
+                    body: JSON.stringify({{
+                        amount: 5000,
+                        currency: 'INR',
+                        user_id: tgUserId,
+                        item_type: itemType
+                    }})
                 }});
                 
-                if (res.redirected) {{
-                    window.location.href = res.url;
-                    return;
-                }}
-                
                 const data = await res.json();
+                
                 if (data.pay_url) {{
-                    window.location.href = data.pay_url;
+                    if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.openLink && data.pay_url.startsWith('http') && !data.pay_url.includes(window.location.hostname)) {{
+                        Telegram.WebApp.openLink(data.pay_url);
+                        payBtn.disabled = false;
+                        spinner.style.display = 'none';
+                        btnText.innerText = 'Pay ₹50 via Instamojo';
+                    }} else {{
+                        window.location.href = data.pay_url;
+                    }}
                 }} else if (data.error) {{
                     throw new Error(data.error);
                 }} else {{
-                    window.location.href = `/checkout/initiate?user_id=${{tgUserId}}&item_type=${{itemType}}`;
+                    throw new Error("Server failed to generate Instamojo payment URL.");
                 }}
             }} catch (err) {{
                 payBtn.disabled = false;
                 spinner.style.display = 'none';
                 btnText.innerText = 'Pay ₹50 via Instamojo';
-                window.location.href = `/checkout/initiate?user_id=${{tgUserId}}&item_type=${{itemType}}`;
+                errBox.innerText = err.message || "Failed to initiate payment gateway.";
+                errBox.style.display = 'block';
             }}
         }}
     </script>
@@ -921,6 +929,55 @@ async def handle_instamojo_mock(request):
     raise web.HTTPFound(location=callback_url)
 
 
+async def handle_instamojo_mock_ui(request):
+    """
+    Renders an interactive Test Sandbox screen when live Instamojo API keys are not yet configured in .env.
+    """
+    order_id = request.query.get("order_id", "PR_mock_0")
+    user_id = request.query.get("user_id", "0")
+    item_type = request.query.get("item_type", "chat_pass")
+    
+    success_url = f"/checkout/instamojo/callback?payment_id=MOJO_mock_{user_id}&payment_status=Credit&payment_request_id={order_id}&user_id={user_id}"
+    fail_url = f"/checkout/instamojo/callback?payment_id=MOJO_mock_{user_id}&payment_status=Failed&payment_request_id={order_id}&user_id={user_id}"
+    
+    html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Instamojo Test Gateway</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
+        body {{ background: linear-gradient(135deg, #0a0712 0%, #1e1b4b 100%); color: #f8fafc; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }}
+        .card {{ background: rgba(30, 41, 59, 0.9); backdrop-filter: blur(16px); border: 1px solid rgba(255, 74, 118, 0.3); border-radius: 24px; padding: 32px 24px; max-width: 420px; width: 100%; text-align: center; box-shadow: 0 20px 40px rgba(0,0,0,0.6); }}
+        .badge {{ display: inline-block; background: rgba(234, 179, 8, 0.15); border: 1px solid rgba(234, 179, 8, 0.4); color: #fde047; padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: 600; margin-bottom: 16px; }}
+        h1 {{ font-size: 22px; font-weight: 700; margin-bottom: 8px; color: #ffffff; }}
+        p {{ font-size: 14px; color: #cbd5e1; margin-bottom: 24px; line-height: 1.5; }}
+        .btn-success {{ width: 100%; background: linear-gradient(90deg, #22c55e 0%, #16a34a 100%); color: white; border: none; padding: 16px; border-radius: 14px; font-size: 16px; font-weight: 700; cursor: pointer; margin-bottom: 12px; display: block; text-decoration: none; }}
+        .btn-fail {{ width: 100%; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15); color: #9ca3af; padding: 14px; border-radius: 14px; font-size: 14px; font-weight: 600; cursor: pointer; display: block; text-decoration: none; }}
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="badge">🧪 Test Sandbox Mode</div>
+        <h1>Instamojo Payment Gateway</h1>
+        <p>Live API credentials are not yet set in <code>.env</code>.<br>You are testing payment flow in Sandbox Mode.</p>
+        
+        <a href="{success_url}" class="btn-success">✅ Simulate Successful Payment (₹50)</a>
+        <a href="{fail_url}" class="btn-fail">❌ Simulate Cancelled Payment</a>
+    </div>
+    <script>
+        if (window.Telegram && window.Telegram.WebApp) {{
+            Telegram.WebApp.ready();
+            Telegram.WebApp.expand();
+        }}
+    </script>
+</body>
+</html>"""
+    return web.Response(text=html_content, content_type="text/html")
+
+
 async def handle_api_payment_failed(request):
     """Logs payment failure event and updates database."""
     try:
@@ -1046,6 +1103,7 @@ async def start_webhook_server(application, port=8080):
     app.router.add_get('/checkout/initiate', handle_checkout_initiate)
     app.router.add_get('/checkout/instamojo/callback', handle_instamojo_callback)
     app.router.add_get('/checkout/instamojo/mock', handle_instamojo_mock)
+    app.router.add_get('/checkout/instamojo/mock_ui', handle_instamojo_mock_ui)
     app.router.add_get('/checkout', handle_checkout_page)
     app.router.add_get('/api/config', handle_get_config)
     app.router.add_get('/api/admin/export-data', handle_admin_export_data)
