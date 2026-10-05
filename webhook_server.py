@@ -612,6 +612,38 @@ async def handle_api_memories(request):
         return web.json_response({"success": False, "error": "Invalid action or user_id"}, status=400)
 
 
+async def handle_admin_export_data(request):
+    """API endpoint to export all users, abandoned checkouts, and payments data."""
+    try:
+        stats = database.get_admin_stats()
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT p.payment_id, p.amount, p.item_type, p.created_at, u.username, u.first_name, p.telegram_id
+            FROM payments p
+            LEFT JOIN users u ON p.telegram_id = u.telegram_id
+            ORDER BY p.created_at DESC
+        """)
+        all_payment_rows = cursor.fetchall()
+        all_payments = []
+        for r in all_payment_rows:
+            all_payments.append({
+                "payment_id": r["payment_id"],
+                "amount_inr": r["amount"] / 100.0,
+                "item_type": r["item_type"],
+                "created_at": r["created_at"],
+                "username": r["username"],
+                "first_name": r["first_name"],
+                "telegram_id": r["telegram_id"]
+            })
+        conn.close()
+        stats["all_payments"] = all_payments
+        return web.json_response({"success": True, "data": stats})
+    except Exception as e:
+        logger.error(f"Error in handle_admin_export_data: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+
 async def start_webhook_server(application, port=8080):
     """
     Starts the aiohttp webhook server on the specified port.
@@ -620,6 +652,7 @@ async def start_webhook_server(application, port=8080):
     app = web.Application()
     app.router.add_get('/', handle_home)
     app.router.add_get('/api/config', handle_get_config)
+    app.router.add_get('/api/admin/export-data', handle_admin_export_data)
     app.router.add_post('/api/create-order', handle_create_order)
     app.router.add_post('/api/verify-payment', handle_verify_payment)
     app.router.add_post('/webhook/razorpay', handle_razorpay_webhook)
