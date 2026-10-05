@@ -550,6 +550,59 @@ async def handle_api_memories(request):
         return web.json_response({"success": False, "error": "Invalid action or user_id"}, status=400)
 
 
+async def handle_checkout_initiate(request):
+    """
+    1-Click Payment Initiation Endpoint:
+    Directly creates unique Razorpay order, records transaction in database,
+    logs pay_button_clicked and payment_order_created events, and redirects
+    to the hosted checkout page (/checkout?order_id=...).
+    """
+    user_id_str = request.query.get("user_id")
+    item_type = request.query.get("item_type", "chat_pass")
+    
+    if not user_id_str:
+        return web.Response(text="Missing user_id parameter", status=400)
+        
+    try:
+        user_id = int(user_id_str)
+    except ValueError:
+        return web.Response(text="Invalid user_id parameter", status=400)
+
+    # Log pay_button_clicked event
+    database.log_payment_event(
+        event_name="pay_button_clicked",
+        telegram_user_id=user_id,
+        status="CLICKED"
+    )
+
+    # Create Razorpay Order
+    import time
+    order_id = f"ord_{user_id}_{int(time.time())}"
+    amount_paise = 5000
+    
+    if config.RAZORPAY_KEY_ID and config.RAZORPAY_KEY_ID != "YOUR_RAZORPAY_KEY_ID":
+        try:
+            client = razorpay.Client(auth=(config.RAZORPAY_KEY_ID, config.RAZORPAY_KEY_SECRET))
+            order_data = client.order.create({
+                "amount": amount_paise,
+                "currency": "INR",
+                "receipt": f"rec_{user_id}_{int(time.time())}",
+                "notes": {
+                    "user_id": str(user_id),
+                    "item_type": item_type
+                }
+            })
+            order_id = order_data["id"]
+        except Exception as e:
+            logger.error(f"Error creating Razorpay order in /checkout/initiate: {e}")
+
+    # Register transaction order in payments table & log payment_order_created event
+    database.create_payment_order(user_id, order_id=order_id, amount=amount_paise, item_type=item_type)
+
+    # Redirect to hosted payment page
+    raise web.HTTPFound(location=f"/checkout?order_id={order_id}")
+
+
 async def handle_checkout_page(request):
     """
     Renders the Hosted Checkout Page for order payment.
@@ -822,6 +875,7 @@ async def start_webhook_server(application, port=8080):
     """
     app = web.Application()
     app.router.add_get('/', handle_home)
+    app.router.add_get('/checkout/initiate', handle_checkout_initiate)
     app.router.add_get('/checkout', handle_checkout_page)
     app.router.add_get('/api/config', handle_get_config)
     app.router.add_get('/api/admin/export-data', handle_admin_export_data)

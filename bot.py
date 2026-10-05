@@ -41,12 +41,15 @@ logger = logging.getLogger(__name__)
 # Structure: {user_id: "AWAITING_USER_NICKNAME" | "AWAITING_AI_NICKNAME"}
 USER_STATES = {}
 
-# --- Paywall Keyboard Helpers ---
-
-def get_chat_paywall_keyboard():
+def get_chat_paywall_keyboard(user_id=None):
+    base_url = config.WEB_CHECKOUT_URL.rstrip('/')
+    if user_id:
+        pay_url = f"{base_url}/checkout/initiate?user_id={user_id}&item_type=chat_pass"
+    else:
+        pay_url = f"{base_url}/checkout"
     keyboard = [
         [
-            InlineKeyboardButton("💖 Unlock 1-Day Unlimited Chat (₹50)", callback_data="pay_chat_pass")
+            InlineKeyboardButton("💳 Continue for ₹50 — Open Payment Page", url=pay_url)
         ],
         [
             InlineKeyboardButton("🔙 View Profile / Balance", callback_data="profile_back")
@@ -54,10 +57,15 @@ def get_chat_paywall_keyboard():
     ]
     return InlineKeyboardMarkup(keyboard)
 
-def get_image_paywall_keyboard():
+def get_image_paywall_keyboard(user_id=None):
+    base_url = config.WEB_CHECKOUT_URL.rstrip('/')
+    if user_id:
+        pay_url = f"{base_url}/checkout/initiate?user_id={user_id}&item_type=image_credits"
+    else:
+        pay_url = f"{base_url}/checkout"
     keyboard = [
         [
-            InlineKeyboardButton("💳 Pay ₹50 for 10 Images", callback_data="pay_image_credits")
+            InlineKeyboardButton("💳 Continue for ₹50 — Open Payment Page", url=pay_url)
         ],
         [
             InlineKeyboardButton("🔙 View Profile / Balance", callback_data="profile_back")
@@ -224,7 +232,7 @@ async def draw_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await update.message.reply_text(
             paywall_text,
-            reply_markup=get_image_paywall_keyboard(),
+            reply_markup=get_image_paywall_keyboard(user.id),
             parse_mode="HTML"
         )
         return
@@ -475,7 +483,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         )
         await query.message.edit_text(
             paywall_text,
-            reply_markup=get_chat_paywall_keyboard(),
+            reply_markup=get_chat_paywall_keyboard(user_id),
             parse_mode="HTML"
         )
         
@@ -488,7 +496,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         )
         await query.message.edit_text(
             paywall_text,
-            reply_markup=get_image_paywall_keyboard(),
+            reply_markup=get_image_paywall_keyboard(user_id),
             parse_mode="HTML"
         )
         
@@ -911,7 +919,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await safe_send_reply(
                     update,
                     paywall_text,
-                    reply_markup=get_chat_paywall_keyboard(),
+                    reply_markup=get_chat_paywall_keyboard(user.id),
                     parse_mode="HTML"
                 )
                 return
