@@ -1204,6 +1204,50 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Failed to retrieve stats: {e}")
 
 
+async def export_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Admin-only command to export all users as a CSV file."""
+    user = update.effective_user
+    is_admin = False
+    if config.ADMIN_TELEGRAM_ID and str(user.id) == str(config.ADMIN_TELEGRAM_ID):
+        is_admin = True
+    if user.username and user.username.lower() == "dhinesh_rajam":
+        is_admin = True
+        
+    if not is_admin:
+        await update.message.reply_text("❌ You do not have permission to export user data.")
+        return
+
+    try:
+        trying_users = database.get_trying_users()
+        import io, csv
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["Telegram ID", "Username", "First Name", "Joined Date", "Free Msgs Used", "Chat Pass Active", "Image Credits"])
+        for u in trying_users:
+            writer.writerow([
+                u["telegram_id"],
+                u["username"] or "",
+                u["first_name"] or "",
+                u["created_at"],
+                u["free_messages_used"],
+                "YES" if u["is_chat_subscribed"] else "NO",
+                u["image_credits"]
+            ])
+        output.seek(0)
+        file_bytes = io.BytesIO(output.getvalue().encode("utf-8"))
+        file_bytes.name = "vps_all_users.csv"
+        await update.message.reply_document(
+            document=file_bytes,
+            filename="vps_all_users.csv",
+            caption=f"📊 <b>Complete User Export</b> ({len(trying_users)} users)",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"Error in export_command: {e}")
+        await update.message.reply_text(f"❌ Failed to export user data: {e}")
+
+
+
 async def mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Allows user to toggle between Caring Best Friend and Intimate Girlfriend modes."""
     user = update.effective_user
@@ -1289,6 +1333,8 @@ def main():
     application.add_handler(CommandHandler("reset", reset_command))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("stats", stats_command))
+    application.add_handler(CommandHandler("export", export_command))
+    application.add_handler(CommandHandler("export_users", export_command))
     
     # Add Inline Button Handler
     application.add_handler(CallbackQueryHandler(handle_callback_query))
