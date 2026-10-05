@@ -10,7 +10,11 @@ VENICE_API_KEY = os.getenv("VENICE_API_KEY")
 VENICE_MODEL = os.getenv("VENICE_MODEL", "e2ee-qwen-2-5-7b-p")
 VENICE_IMAGE_MODEL = os.getenv("VENICE_IMAGE_MODEL", "lustify-v7")
 
-# Instamojo API Credentials
+# Payment Gateway Credentials (Razorpay & Instamojo)
+PAYMENT_GATEWAY = os.getenv("PAYMENT_GATEWAY", "razorpay")
+RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "")
+RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "")
+
 INSTAMOJO_API_KEY = os.getenv("INSTAMOJO_API_KEY", "")
 INSTAMOJO_AUTH_TOKEN = os.getenv("INSTAMOJO_AUTH_TOKEN", "")
 INSTAMOJO_SALT = os.getenv("INSTAMOJO_SALT", "")

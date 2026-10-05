@@ -173,7 +173,7 @@ async def handle_home(request):
 
 async def handle_create_order(request):
     """
-    Creates an Instamojo Payment Request for REST clients.
+    Creates a Payment Order (Razorpay or Instamojo).
     Expects JSON payload with: amount, currency, user_id, item_type.
     """
     try:
@@ -184,6 +184,7 @@ async def handle_create_order(request):
     amount = data.get("amount", 5000)
     user_id = data.get("user_id")
     item_type = data.get("item_type", "chat_pass")
+    gateway_type = data.get("gateway") or config.PAYMENT_GATEWAY
     
     if not user_id:
         return web.json_response({"error": "Missing user_id"}, status=400)
@@ -191,35 +192,80 @@ async def handle_create_order(request):
     try:
         user_id = int(user_id)
         amount_inr = float(amount) / 100.0 if int(amount) >= 100 else 50.0
+        amount_paise = int(amount_inr * 100)
     except ValueError:
         return web.json_response({"error": "Invalid user_id or amount"}, status=400)
-        
+
+    # If Razorpay keys are configured or explicitly requested
+    if (gateway_type == "razorpay" or config.RAZORPAY_KEY_ID) and config.RAZORPAY_KEY_ID and config.RAZORPAY_KEY_SECRET:
+        try:
+            import razorpay
+            import time
+            client = razorpay.Client(auth=(config.RAZORPAY_KEY_ID, config.RAZORPAY_KEY_SECRET))
+            receipt_str = f"rcpt_{user_id}_{int(time.time())}"[:40]
+            rzp_order = client.order.create({
+                "amount": amount_paise,
+                "currency": "INR",
+                "receipt": receipt_str,
+                "payment_capture": 1,
+                "notes": {
+                    "user_id": str(user_id),
+                    "item_type": item_type
+                }
+            })
+            order_id = rzp_order["id"]
+            database.create_payment_order(user_id, order_id=order_id, amount=amount_paise, item_type=item_type, payment_gateway="razorpay")
+            database.log_payment_event(
+                event_name="payment_order_created",
+                telegram_user_id=user_id,
+                order_id=order_id,
+                amount=amount_paise,
+                status="PENDING",
+                payment_gateway="razorpay"
+            )
+            return web.json_response({
+                "order_id": order_id,
+                "amount": amount_paise,
+                "currency": "INR",
+                "key": config.RAZORPAY_KEY_ID,
+                "gateway": "razorpay"
+            })
+        except Exception as rzp_err:
+            logger.error(f"Razorpay order creation error: {rzp_err}")
+            return web.json_response({"error": f"Razorpay API Error: {str(rzp_err)}"}, status=400)
+
+    # Fallback to Instamojo
     order_id, pay_url, err = await create_instamojo_payment_request(user_id, item_type, amount_inr=amount_inr)
     
     if not pay_url:
         return web.json_response({"error": err or "Failed to create Instamojo payment request"}, status=400)
         
-    database.create_payment_order(user_id, order_id=order_id, amount=int(amount_inr * 100), item_type=item_type)
+    database.create_payment_order(user_id, order_id=order_id, amount=amount_paise, item_type=item_type, payment_gateway="instamojo")
     
     return web.json_response({
         "order_id": order_id,
         "pay_url": pay_url,
-        "amount": int(amount_inr * 100),
-        "currency": "INR"
+        "amount": amount_paise,
+        "currency": "INR",
+        "gateway": "instamojo"
     })
 
 async def handle_verify_payment(request):
     """
-    Verifies Instamojo payment and updates the SQLite database idempotently.
-    Expects JSON payload with: payment_request_id (or order_id), payment_id, user_id.
+    Verifies Razorpay or Instamojo payment and updates the SQLite database idempotently.
+    Expects JSON payload with: razorpay_signature (or payment_request_id/order_id), payment_id, user_id.
     """
     try:
         data = await request.json()
     except Exception:
         return web.json_response({"error": "Invalid JSON payload"}, status=400)
         
-    order_id = data.get("payment_request_id") or data.get("order_id") or data.get("razorpay_order_id")
-    payment_id = data.get("payment_id") or data.get("razorpay_payment_id") or f"MOJO_verify_{order_id}"
+    razorpay_payment_id = data.get("razorpay_payment_id")
+    razorpay_order_id = data.get("razorpay_order_id")
+    razorpay_signature = data.get("razorpay_signature")
+    
+    order_id = razorpay_order_id or data.get("payment_request_id") or data.get("order_id")
+    payment_id = razorpay_payment_id or data.get("payment_id") or f"verify_{order_id}"
     user_id = data.get("user_id")
     item_type = data.get("item_type", "chat_pass")
     
@@ -228,12 +274,27 @@ async def handle_verify_payment(request):
         
     try:
         user_id = int(user_id)
+        gateway_used = "razorpay" if razorpay_signature else "instamojo"
+        
+        if razorpay_signature and config.RAZORPAY_KEY_SECRET:
+            try:
+                import razorpay
+                client = razorpay.Client(auth=(config.RAZORPAY_KEY_ID, config.RAZORPAY_KEY_SECRET))
+                client.utility.verify_payment_signature({
+                    "razorpay_order_id": razorpay_order_id,
+                    "razorpay_payment_id": razorpay_payment_id,
+                    "razorpay_signature": razorpay_signature
+                })
+            except Exception as sig_err:
+                logger.error(f"Razorpay signature verification failed: {sig_err}")
+                return web.json_response({"error": "Payment signature verification failed"}, status=400)
+
         unlocked_now, expiry, msg_str = database.unlock_paid_access_idempotent(
             telegram_id=user_id,
             order_id=order_id,
             payment_id=payment_id,
             item_type=item_type,
-            gateway="instamojo",
+            gateway=gateway_used,
             amount=5000
         )
         
@@ -241,7 +302,7 @@ async def handle_verify_payment(request):
         if tg_app and unlocked_now:
             try:
                 if item_type == "chat_pass":
-                    confirm_text = "You're back. Your 1-day access is now active. Let's continue where we left off. 💖"
+                    confirm_text = "You're back! Your 1-day access is now active. Let's continue where we left off. 💖"
                 else:
                     confirm_text = "✅ <b>Payment Successful!</b>\n\n10 image credits have been added to your account!"
                 await tg_app.bot.send_message(
@@ -274,7 +335,8 @@ async def handle_get_config(request):
         except Exception:
             pass
     return web.json_response({
-        "payment_gateway": "instamojo",
+        "payment_gateway": config.PAYMENT_GATEWAY,
+        "razorpay_key_id": config.RAZORPAY_KEY_ID,
         "bot_username": bot_username
     })
 
@@ -608,6 +670,7 @@ async def handle_checkout_page(request):
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Karin AI Checkout</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
     <style>
         * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-tap-highlight-color: transparent; }}
         body {{ background: linear-gradient(135deg, #0a0712 0%, #150d22 50%, #06040a 100%); color: #f3f4f6; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; }}
@@ -646,7 +709,7 @@ async def handle_checkout_page(request):
 
         <button id="pay-btn" onclick="startPayment()" class="pay-btn">
             <div id="spinner" class="spinner"></div>
-            <span id="btn-text">Pay ₹50 via Instamojo</span>
+            <span id="btn-text">Pay ₹50 with Razorpay</span>
         </button>
 
         <a id="sandbox-btn" style="display:none; width: 100%; background: rgba(234, 179, 8, 0.15); border: 1px solid rgba(234, 179, 8, 0.4); color: #fde047; padding: 14px; border-radius: 14px; font-size: 14px; font-weight: 600; text-decoration: none; margin-top: 12px; box-sizing: border-box;" href="#">🧪 Test in Sandbox Mode</a>
@@ -687,7 +750,7 @@ async def handle_checkout_page(request):
 
             payBtn.disabled = true;
             spinner.style.display = 'block';
-            btnText.innerText = 'Connecting to Instamojo...';
+            btnText.innerText = 'Connecting to Gateway...';
 
             try {{
                 const res = await fetch('/api/create-order', {{
@@ -703,7 +766,70 @@ async def handle_checkout_page(request):
                 
                 const data = await res.json();
                 
-                if (data.pay_url) {{
+                if (data.gateway === 'razorpay' && data.key) {{
+                    spinner.style.display = 'none';
+                    btnText.innerText = 'Pay ₹50 with Razorpay';
+                    payBtn.disabled = false;
+                    
+                    const options = {{
+                        key: data.key,
+                        amount: data.amount,
+                        currency: data.currency || 'INR',
+                        name: "Karin AI Companion",
+                        description: itemType === 'chat_pass' ? "24-Hour Unlimited Chat Pass" : "10 Image Credits",
+                        order_id: data.order_id,
+                        theme: {{ color: "#ff4a76" }},
+                        handler: async function (paymentResponse) {{
+                            payBtn.disabled = true;
+                            spinner.style.display = 'block';
+                            btnText.innerText = 'Verifying Payment...';
+                            
+                            try {{
+                                const vRes = await fetch('/api/verify-payment', {{
+                                    method: 'POST',
+                                    headers: {{ 'Content-Type': 'application/json' }},
+                                    body: JSON.stringify({{
+                                        razorpay_payment_id: paymentResponse.razorpay_payment_id,
+                                        razorpay_order_id: paymentResponse.razorpay_order_id,
+                                        razorpay_signature: paymentResponse.razorpay_signature,
+                                        user_id: tgUserId,
+                                        item_type: itemType
+                                    }})
+                                }});
+                                const vData = await vRes.json();
+                                if (vData.success) {{
+                                    document.body.innerHTML = `
+                                        <div style="background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); color: #f8fafc; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px;">
+                                            <div style="background: rgba(30, 41, 59, 0.85); backdrop-filter: blur(16px); border: 1px solid rgba(34, 197, 94, 0.4); border-radius: 24px; padding: 36px; max-width: 420px; width: 100%; text-align: center;">
+                                                <div style="font-size: 56px; margin-bottom: 16px;">💖</div>
+                                                <h1 style="font-size: 24px; font-weight: 700; margin-bottom: 12px; color: #4ade80;">Payment Successful!</h1>
+                                                <p style="font-size: 15px; color: #cbd5e1; margin-bottom: 24px;">Your access has been activated! Return to Telegram to chat with Karin.</p>
+                                                <button onclick="if(window.Telegram && window.Telegram.WebApp){{Telegram.WebApp.close();}}else{{window.location.href='https://t.me/KarinAICompanionBot';}}" style="width: 100%; background: linear-gradient(90deg, #22c55e 0%, #16a34a 100%); color: white; border: none; padding: 16px; border-radius: 14px; font-size: 16px; font-weight: 700; cursor: pointer;">Return to Telegram Chat</button>
+                                            </div>
+                                        </div>
+                                    `;
+                                }} else {{
+                                    throw new Error(vData.error || "Payment verification failed.");
+                                }}
+                            } catch (vErr) {{
+                                payBtn.disabled = false;
+                                spinner.style.display = 'none';
+                                btnText.innerText = 'Pay ₹50 with Razorpay';
+                                errBox.innerText = vErr.message;
+                                errBox.style.display = 'block';
+                            }}
+                        }},
+                        modal: {{
+                            ondismiss: function () {{
+                                payBtn.disabled = false;
+                                spinner.style.display = 'none';
+                                btnText.innerText = 'Pay ₹50 with Razorpay';
+                            }}
+                        }}
+                    }};
+                    const rzp = new Razorpay(options);
+                    rzp.open();
+                }} else if (data.pay_url) {{
                     if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.openLink && data.pay_url.startsWith('http') && !data.pay_url.includes(window.location.hostname)) {{
                         Telegram.WebApp.openLink(data.pay_url);
                         payBtn.disabled = false;
@@ -715,12 +841,12 @@ async def handle_checkout_page(request):
                 }} else if (data.error) {{
                     throw new Error(data.error);
                 }} else {{
-                    throw new Error("Server failed to generate Instamojo payment URL.");
+                    throw new Error("Server failed to generate payment gateway link.");
                 }}
             }} catch (err) {{
                 payBtn.disabled = false;
                 spinner.style.display = 'none';
-                btnText.innerText = 'Pay ₹50 via Instamojo';
+                btnText.innerText = 'Pay ₹50';
                 errBox.innerText = err.message || "Failed to initiate payment gateway.";
                 errBox.style.display = 'block';
                 
