@@ -44,13 +44,13 @@ USER_STATES = {}
 def get_chat_paywall_keyboard(user_id=None):
     base_url = config.WEB_CHECKOUT_URL.rstrip('/')
     if user_id:
-        pay_url = f"{base_url}/checkout/initiate?user_id={user_id}&item_type=chat_pass"
+        pay_url = f"{base_url}/checkout?user_id={user_id}&item_type=chat_pass"
     else:
-        pay_url = f"{base_url}/checkout"
+        pay_url = f"{base_url}/checkout?item_type=chat_pass"
 
     keyboard = [
         [
-            InlineKeyboardButton("💳 Continue for ₹50 — Open Payment Page", url=pay_url)
+            InlineKeyboardButton("💳 Continue for ₹50 — Pay inside Telegram", web_app=WebAppInfo(url=pay_url))
         ],
         [
             InlineKeyboardButton("🔙 View Profile / Balance", callback_data="profile_back")
@@ -61,13 +61,13 @@ def get_chat_paywall_keyboard(user_id=None):
 def get_image_paywall_keyboard(user_id=None):
     base_url = config.WEB_CHECKOUT_URL.rstrip('/')
     if user_id:
-        pay_url = f"{base_url}/checkout/initiate?user_id={user_id}&item_type=image_credits"
+        pay_url = f"{base_url}/checkout?user_id={user_id}&item_type=image_credits"
     else:
-        pay_url = f"{base_url}/checkout"
+        pay_url = f"{base_url}/checkout?item_type=image_credits"
 
     keyboard = [
         [
-            InlineKeyboardButton("💳 Continue for ₹50 — Open Payment Page", url=pay_url)
+            InlineKeyboardButton("💳 Continue for ₹50 — Pay inside Telegram", web_app=WebAppInfo(url=pay_url))
         ],
         [
             InlineKeyboardButton("🔙 View Profile / Balance", callback_data="profile_back")

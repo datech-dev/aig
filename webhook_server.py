@@ -593,25 +593,145 @@ async def handle_checkout_initiate(request):
 
 
 async def handle_checkout_page(request):
-    """Legacy route alias redirecting to /checkout/initiate."""
-    user_id_str = request.query.get("user_id")
+    """
+    Renders the native Telegram WebApp Checkout Page.
+    Receives user_id & item_type via query params or Telegram WebApp initData.
+    Auto-initiates payment or displays a sleek checkout card with Instamojo gateway redirect.
+    """
+    user_id_str = request.query.get("user_id", "")
     item_type = request.query.get("item_type", "chat_pass")
-    if user_id_str:
-        raise web.HTTPFound(location=f"/checkout/initiate?user_id={user_id_str}&item_type={item_type}")
-    return web.Response(text="Please initiate payment via Telegram bot buttons.", status=400)
+    
+    title = "24-Hour Unlimited Chat Pass" if item_type == "chat_pass" else "10 Image Generation Credits"
+    desc = "Unlimited instant messages, voice notes & roleplays with Karin for 24 hours." if item_type == "chat_pass" else "Generate 10 custom NSFW images of Karin using Venice AI."
+
+    html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Karin AI Checkout</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-tap-highlight-color: transparent; }}
+        body {{ background: linear-gradient(135deg, #0a0712 0%, #150d22 50%, #06040a 100%); color: #f3f4f6; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; }}
+        .checkout-card {{ background: rgba(255, 255, 255, 0.04); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 24px; padding: 28px 24px; width: 100%; max-width: 400px; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6); text-align: center; position: relative; overflow: hidden; }}
+        .checkout-card::before {{ content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: radial-gradient(circle, rgba(255, 74, 118, 0.12) 0%, transparent 60%); pointer-events: none; }}
+        .avatar-wrap {{ width: 80px; height: 80px; margin: 0 auto 16px auto; border-radius: 50%; border: 2px solid #ff4a76; padding: 3px; background: rgba(255, 74, 118, 0.1); box-shadow: 0 0 20px rgba(255, 74, 118, 0.4); }}
+        .avatar-wrap img {{ width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }}
+        .title {{ font-size: 20px; font-weight: 700; color: #ffffff; margin-bottom: 6px; }}
+        .subtitle {{ font-size: 13px; color: #9ca3af; margin-bottom: 20px; line-height: 1.4; }}
+        .price-badge {{ background: rgba(255, 74, 118, 0.15); border: 1px solid rgba(255, 74, 118, 0.3); border-radius: 16px; padding: 14px; margin-bottom: 24px; display: flex; justify-content: space-between; align-items: center; }}
+        .price-label {{ font-size: 14px; color: #d1d5db; font-weight: 500; }}
+        .price-val {{ font-size: 24px; font-weight: 800; color: #ff4a76; }}
+        .pay-btn {{ width: 100%; background: linear-gradient(135deg, #ff4a76 0%, #e03b62 100%); color: white; border: none; padding: 16px; border-radius: 14px; font-size: 16px; font-weight: 700; cursor: pointer; transition: all 0.2s ease; box-shadow: 0 8px 25px rgba(255, 74, 118, 0.4); display: flex; align-items: center; justify-content: center; gap: 8px; }}
+        .pay-btn:active {{ transform: scale(0.98); opacity: 0.9; }}
+        .pay-btn:disabled {{ opacity: 0.6; cursor: not-allowed; }}
+        .spinner {{ display: none; width: 20px; height: 20px; border: 3px solid rgba(255,255,255,0.3); border-radius: 50%; border-top-color: #fff; animation: spin 0.8s linear infinite; }}
+        @keyframes spin {{ to {{ transform: rotate(360deg); }} }}
+        .secure-note {{ font-size: 12px; color: #6b7280; margin-top: 16px; display: flex; align-items: center; justify-content: center; gap: 6px; }}
+        .error-box {{ background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: #f87171; font-size: 13px; padding: 10px; border-radius: 10px; margin-bottom: 16px; display: none; text-align: left; }}
+    </style>
+</head>
+<body>
+    <div class="checkout-card">
+        <div class="avatar-wrap">
+            <img src="/assets/karin_avatar.jpg" onerror="this.src='https://raw.githubusercontent.com/telegramdesktop/tdesktop/dev/Telegram/Resources/art/bg.png'" alt="Karin">
+        </div>
+        <h1 class="title">{title}</h1>
+        <p class="subtitle">{desc}</p>
+        
+        <div class="price-badge">
+            <span class="price-label">Total Amount</span>
+            <span class="price-val">₹50</span>
+        </div>
+
+        <div id="error-box" class="error-box"></div>
+
+        <button id="pay-btn" onclick="startPayment()" class="pay-btn">
+            <div id="spinner" class="spinner"></div>
+            <span id="btn-text">Pay ₹50 via Instamojo</span>
+        </button>
+
+        <div class="secure-note">
+            🔒 256-bit Encrypted SSL Gateway (UPI / Cards / NetBanking)
+        </div>
+    </div>
+
+    <script>
+        let tgUserId = "{user_id_str}";
+        let itemType = "{item_type}";
+
+        // Initialize Telegram WebApp API
+        if (window.Telegram && window.Telegram.WebApp) {{
+            Telegram.WebApp.ready();
+            Telegram.WebApp.expand();
+            if (!tgUserId && Telegram.WebApp.initDataUnsafe && Telegram.WebApp.initDataUnsafe.user) {{
+                tgUserId = Telegram.WebApp.initDataUnsafe.user.id;
+            }}
+        }}
+
+        async function startPayment() {{
+            const errBox = document.getElementById('error-box');
+            const payBtn = document.getElementById('pay-btn');
+            const spinner = document.getElementById('spinner');
+            const btnText = document.getElementById('btn-text');
+
+            errBox.style.display = 'none';
+
+            if (!tgUserId) {{
+                errBox.innerText = "Telegram User ID missing. Please open checkout from Telegram bot.";
+                errBox.style.display = 'block';
+                return;
+            }}
+
+            payBtn.disabled = true;
+            spinner.style.display = 'block';
+            btnText.innerText = 'Connecting to Gateway...';
+
+            try {{
+                const res = await fetch(`/checkout/initiate?user_id=${{tgUserId}}&item_type=${{itemType}}`, {{
+                    headers: {{ 'Accept': 'application/json' }}
+                }});
+                
+                if (res.redirected) {{
+                    window.location.href = res.url;
+                    return;
+                }}
+                
+                const data = await res.json();
+                if (data.pay_url) {{
+                    window.location.href = data.pay_url;
+                }} else if (data.error) {{
+                    throw new Error(data.error);
+                }} else {{
+                    window.location.href = `/checkout/initiate?user_id=${{tgUserId}}&item_type=${{itemType}}`;
+                }}
+            }} catch (err) {{
+                payBtn.disabled = false;
+                spinner.style.display = 'none';
+                btnText.innerText = 'Pay ₹50 via Instamojo';
+                window.location.href = `/checkout/initiate?user_id=${{tgUserId}}&item_type=${{itemType}}`;
+            }}
+        }}
+    </script>
+</body>
+</html>"""
+    return web.Response(text=html_content, content_type="text/html")
 
 
 async def handle_instamojo_callback(request):
     """
     Handles user redirect back from Instamojo after payment attempt.
-    Query parameters: payment_id, payment_status, payment_request_id.
+    Query parameters: payment_id, payment_status, payment_request_id, user_id.
+    Renders styled Telegram WebApp confirmation card with Telegram.WebApp.close().
     """
     try:
-        payment_id = request.query.get("payment_id")
-        payment_status = request.query.get("payment_status")
-        payment_request_id = request.query.get("payment_request_id")
+        payment_id = request.query.get("payment_id") or ""
+        payment_status = request.query.get("payment_status") or ""
+        payment_request_id = request.query.get("payment_request_id") or ""
+        user_id_param = request.query.get("user_id") or ""
         
-        logger.info(f"Instamojo callback: payment_id={payment_id}, status={payment_status}, request_id={payment_request_id}")
+        logger.info(f"Instamojo callback: payment_id={payment_id}, status={payment_status}, request_id={payment_request_id}, user_id_param={user_id_param}")
 
         conn = database.get_connection()
         cursor = conn.cursor()
@@ -620,6 +740,18 @@ async def handle_instamojo_callback(request):
         conn.close()
 
         telegram_id = row["telegram_id"] if row else 0
+        if not telegram_id and user_id_param:
+            try:
+                telegram_id = int(user_id_param)
+            except ValueError:
+                pass
+                
+        if not telegram_id:
+            import re
+            m = re.search(r'(\d{7,12})', payment_id + payment_request_id)
+            if m:
+                telegram_id = int(m.group(1))
+
         item_type = row["item_type"] if row else "chat_pass"
         amount = row["amount"] if row else 5000
 
@@ -635,7 +767,7 @@ async def handle_instamojo_callback(request):
 
         if payment_status in ("Credit", "SUCCESS", "completed", "paid"):
             unlocked_now, expiry, msg_str = database.unlock_paid_access_idempotent(
-                telegram_id=telegram_id,
+                telegram_id=telegram_id if telegram_id else 0,
                 order_id=payment_request_id,
                 payment_id=payment_id,
                 item_type=item_type,
@@ -643,10 +775,10 @@ async def handle_instamojo_callback(request):
                 amount=amount
             )
             
-            if tg_app and unlocked_now and telegram_id:
+            if tg_app and unlocked_now and telegram_id > 0:
                 try:
                     if item_type == "chat_pass":
-                        confirm_text = "You're back. Your 1-day access is now active. Let's continue where we left off. 💖"
+                        confirm_text = "You're back! Your 1-day access is now active. Let's continue where we left off. 💖"
                     else:
                         confirm_text = "✅ <b>Payment Successful!</b>\n\n10 image credits have been added to your account!"
                     await tg_app.bot.send_message(
@@ -663,14 +795,15 @@ async def handle_instamojo_callback(request):
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Payment Successful — Karin AI</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }}
+        * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
         body {{ background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); color: #f8fafc; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }}
-        .card {{ background: rgba(30, 41, 59, 0.85); backdrop-filter: blur(16px); border: 1px solid rgba(34, 197, 94, 0.4); border-radius: 24px; padding: 36px; max-width: 440px; width: 100%; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); text-align: center; }}
+        .card {{ background: rgba(30, 41, 59, 0.85); backdrop-filter: blur(16px); border: 1px solid rgba(34, 197, 94, 0.4); border-radius: 24px; padding: 36px; max-width: 420px; width: 100%; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); text-align: center; }}
         .icon {{ font-size: 56px; margin-bottom: 16px; display: inline-block; }}
         h1 {{ font-size: 24px; font-weight: 700; margin-bottom: 12px; color: #4ade80; }}
         p {{ font-size: 15px; color: #cbd5e1; margin-bottom: 24px; line-height: 1.5; }}
-        .btn {{ width: 100%; background: linear-gradient(90deg, #22c55e 0%, #16a34a 100%); color: white; text-decoration: none; display: block; padding: 16px; border-radius: 14px; font-size: 16px; font-weight: 700; transition: all 0.2s ease; box-shadow: 0 10px 25px -5px rgba(34, 197, 94, 0.4); }}
+        .btn {{ width: 100%; background: linear-gradient(90deg, #22c55e 0%, #16a34a 100%); color: white; border: none; outline: none; cursor: pointer; display: block; padding: 16px; border-radius: 14px; font-size: 16px; font-weight: 700; transition: all 0.2s ease; box-shadow: 0 10px 25px -5px rgba(34, 197, 94, 0.4); text-decoration: none; }}
         .btn:hover {{ transform: translateY(-2px); box-shadow: 0 15px 30px -5px rgba(34, 197, 94, 0.6); }}
     </style>
 </head>
@@ -678,59 +811,113 @@ async def handle_instamojo_callback(request):
     <div class="card">
         <div class="icon">💖</div>
         <h1>Payment Successful!</h1>
-        <p>You're back! Your 1-day access has been activated. Return to Telegram to continue chatting with Karin.</p>
-        <a href="{bot_link}" class="btn">Return to Telegram Bot</a>
+        <p>You're back! Your access has been activated. Tap below to return to your chat with Karin.</p>
+        <button onclick="closeWebApp()" class="btn">Return to Telegram Chat</button>
     </div>
+    <script>
+        if (window.Telegram && window.Telegram.WebApp) {{
+            Telegram.WebApp.ready();
+            Telegram.WebApp.expand();
+        }}
+        function closeWebApp() {{
+            if (window.Telegram && window.Telegram.WebApp) {{
+                Telegram.WebApp.close();
+            }} else {{
+                window.location.href = "{bot_link}";
+            }}
+        }}
+    </script>
 </body>
 </html>"""
             return web.Response(text=html_content, content_type="text/html")
         else:
-            database.log_payment_event(
-                event_name="payment_failed",
-                telegram_user_id=telegram_id,
-                order_id=payment_request_id,
-                payment_id=payment_id,
-                status="FAILED",
-                payment_gateway="instamojo",
-                failure_reason=f"Instamojo status: {payment_status}"
-            )
+            if telegram_id:
+                database.log_payment_event(
+                    event_name="payment_failed",
+                    telegram_user_id=telegram_id,
+                    order_id=payment_request_id,
+                    payment_id=payment_id,
+                    status="FAILED",
+                    payment_gateway="instamojo",
+                    failure_reason=f"Instamojo status: {payment_status}"
+                )
             html_content = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Payment Incomplete — Karin AI</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }}
+        * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
         body {{ background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); color: #f8fafc; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }}
-        .card {{ background: rgba(30, 41, 59, 0.85); backdrop-filter: blur(16px); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 24px; padding: 36px; max-width: 440px; width: 100%; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); text-align: center; }}
+        .card {{ background: rgba(30, 41, 59, 0.85); backdrop-filter: blur(16px); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 24px; padding: 36px; max-width: 420px; width: 100%; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); text-align: center; }}
         .icon {{ font-size: 56px; margin-bottom: 16px; display: inline-block; }}
         h1 {{ font-size: 24px; font-weight: 700; margin-bottom: 12px; color: #f87171; }}
         p {{ font-size: 15px; color: #cbd5e1; margin-bottom: 24px; line-height: 1.5; }}
-        .btn {{ width: 100%; background: linear-gradient(90deg, #ec4899 0%, #d946ef 100%); color: white; text-decoration: none; display: block; padding: 16px; border-radius: 14px; font-size: 16px; font-weight: 700; transition: all 0.2s ease; }}
+        .btn {{ width: 100%; background: linear-gradient(90deg, #ec4899 0%, #d946ef 100%); color: white; border: none; outline: none; cursor: pointer; display: block; padding: 16px; border-radius: 14px; font-size: 16px; font-weight: 700; transition: all 0.2s ease; text-decoration: none; }}
     </style>
 </head>
 <body>
     <div class="card">
         <div class="icon">⚠️</div>
         <h1>Payment Incomplete</h1>
-        <p>Your payment wasn't completed. You can try again whenever you're ready.</p>
-        <a href="{bot_link}" class="btn">Return to Telegram Bot</a>
+        <p>Your payment was not completed. You can try again whenever you're ready.</p>
+        <button onclick="closeWebApp()" class="btn">Return to Telegram Bot</button>
     </div>
+    <script>
+        if (window.Telegram && window.Telegram.WebApp) {{
+            Telegram.WebApp.ready();
+            Telegram.WebApp.expand();
+        }}
+        function closeWebApp() {{
+            if (window.Telegram && window.Telegram.WebApp) {{
+                Telegram.WebApp.close();
+            }} else {{
+                window.location.href = "{bot_link}";
+            }}
+        }}
+    </script>
 </body>
 </html>"""
             return web.Response(text=html_content, content_type="text/html")
     except Exception as err_cb:
         logger.error(f"Error in handle_instamojo_callback: {err_cb}")
-        return web.Response(text="Payment callback received. You can close this window and return to Telegram.", status=200)
-
+        bot_username = "KarinAICompanionBot"
+        bot_link = f"https://t.me/{bot_username}"
+        html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment Received — Karin AI</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
+        body {{ background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); color: #f8fafc; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }}
+        .card {{ background: rgba(30, 41, 59, 0.9); backdrop-filter: blur(16px); border: 1px solid rgba(255, 74, 118, 0.3); border-radius: 24px; padding: 36px; max-width: 420px; width: 100%; text-align: center; }}
+        h1 {{ font-size: 22px; font-weight: 700; margin-bottom: 12px; color: #ff4a76; }}
+        p {{ font-size: 15px; color: #cbd5e1; margin-bottom: 24px; line-height: 1.5; }}
+        .btn {{ width: 100%; background: linear-gradient(90deg, #ff4a76 0%, #e03b62 100%); color: white; border: none; outline: none; display: block; padding: 16px; border-radius: 14px; font-size: 16px; font-weight: 700; cursor: pointer; text-decoration: none; }}
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div style="font-size: 48px; margin-bottom: 12px;">💖</div>
+        <h1>Payment Callback Received</h1>
+        <p>Your payment request was received. Tap below to return to your chat with Karin.</p>
+        <button onclick="if(window.Telegram && window.Telegram.WebApp){{Telegram.WebApp.close();}}else{{window.location.href='{bot_link}';}}" class="btn">Return to Telegram</button>
+    </div>
+</body>
+</html>"""
+        return web.Response(text=html_content, content_type="text/html", status=200)
 
 async def handle_instamojo_mock(request):
     """Mock payment redirection endpoint for local/testing environments."""
-    order_id = request.query.get("order_id")
-    user_id = request.query.get("user_id")
+    order_id = request.query.get("order_id", "PR_mock_0")
+    user_id = request.query.get("user_id", "0")
     item_type = request.query.get("item_type", "chat_pass")
-    callback_url = f"/checkout/instamojo/callback?payment_id=MOJO_mock_{user_id}&payment_status=Credit&payment_request_id={order_id}"
+    callback_url = f"/checkout/instamojo/callback?payment_id=MOJO_mock_{user_id}&payment_status=Credit&payment_request_id={order_id}&user_id={user_id}"
     raise web.HTTPFound(location=callback_url)
 
 

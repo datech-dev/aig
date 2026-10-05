@@ -1,17 +1,17 @@
 event_id,event_name,event_timestamp,telegram_user_id,internal_user_id,order_id,payment_id,amount,currency,payment_gateway,payment_method,status,failure_reason,access_unlocked,access_unlocked_at
-1,payment_success,2026-10-05 15:34:51,88882222,88882222,order_test_123,pay_test_123,5000,INR,Razorpay,,SUCCESS,,0,
-2,payment_verified,2026-10-05 15:34:51,88882222,88882222,order_test_123,pay_test_123,5000,INR,Razorpay,,VERIFIED,,0,
-3,payment_recorded,2026-10-05 15:34:51,88882222,88882222,order_test_123,pay_test_123,5000,INR,Razorpay,,RECORDED,,0,
-4,access_unlocked,2026-10-05 15:34:51,88882222,88882222,order_test_123,pay_test_123,5000,INR,Razorpay,,UNLOCKED,,1,2026-10-05 15:34:51
-5,payment_success,2026-10-05 15:34:52,11110001,11110001,order_1001,pay_1001,5000,INR,Razorpay,,SUCCESS,,0,
-6,payment_verified,2026-10-05 15:34:52,11110001,11110001,order_1001,pay_1001,5000,INR,Razorpay,,VERIFIED,,0,
-7,payment_recorded,2026-10-05 15:34:52,11110001,11110001,order_1001,pay_1001,5000,INR,Razorpay,,RECORDED,,0,
-8,access_unlocked,2026-10-05 15:34:52,11110001,11110001,order_1001,pay_1001,5000,INR,Razorpay,,UNLOCKED,,1,2026-10-05 15:34:52
-9,paywall_shown,2026-10-05 15:34:52,77771111,77771111,,,5000,INR,Razorpay,,SHOWN,,0,
-10,pay_button_clicked,2026-10-05 15:34:52,77771111,77771111,,,5000,INR,Razorpay,,CLICKED,,0,
-11,payment_order_created,2026-10-05 15:34:52,77771111,77771111,ord_test_p0_77771111,,5000,INR,Razorpay,,PENDING,,0,
-12,payment_page_opened,2026-10-05 15:34:52,77771111,77771111,ord_test_p0_77771111,,5000,INR,Razorpay,,OPENED,,0,
-13,payment_success,2026-10-05 15:34:52,77771111,77771111,ord_test_p0_77771111,pay_test_p0_123,5000,INR,Razorpay,upi,SUCCESS,,0,
-14,payment_verified,2026-10-05 15:34:52,77771111,77771111,ord_test_p0_77771111,pay_test_p0_123,5000,INR,Razorpay,upi,VERIFIED,,0,
-15,payment_recorded,2026-10-05 15:34:52,77771111,77771111,ord_test_p0_77771111,pay_test_p0_123,5000,INR,Razorpay,upi,RECORDED,,0,
-16,access_unlocked,2026-10-05 15:34:52,77771111,77771111,ord_test_p0_77771111,pay_test_p0_123,5000,INR,Razorpay,upi,UNLOCKED,,1,2026-10-05 15:34:52
+1,payment_success,2026-10-05 17:54:52,88882222,88882222,order_test_123,pay_test_123,5000,INR,instamojo,,SUCCESS,,0,
+2,payment_verified,2026-10-05 17:54:52,88882222,88882222,order_test_123,pay_test_123,5000,INR,instamojo,,VERIFIED,,0,
+3,payment_recorded,2026-10-05 17:54:52,88882222,88882222,order_test_123,pay_test_123,5000,INR,instamojo,,RECORDED,,0,
+4,access_unlocked,2026-10-05 17:54:52,88882222,88882222,order_test_123,pay_test_123,5000,INR,instamojo,,UNLOCKED,,1,2026-10-05 17:54:52
+5,payment_success,2026-10-05 17:54:53,11110001,11110001,order_1001,pay_1001,5000,INR,instamojo,,SUCCESS,,0,
+6,payment_verified,2026-10-05 17:54:53,11110001,11110001,order_1001,pay_1001,5000,INR,instamojo,,VERIFIED,,0,
+7,payment_recorded,2026-10-05 17:54:53,11110001,11110001,order_1001,pay_1001,5000,INR,instamojo,,RECORDED,,0,
+8,access_unlocked,2026-10-05 17:54:53,11110001,11110001,order_1001,pay_1001,5000,INR,instamojo,,UNLOCKED,,1,2026-10-05 17:54:53
+9,paywall_shown,2026-10-05 17:54:53,77771111,77771111,,,5000,INR,Razorpay,,SHOWN,,0,
+10,pay_button_clicked,2026-10-05 17:54:53,77771111,77771111,,,5000,INR,Razorpay,,CLICKED,,0,
+11,payment_order_created,2026-10-05 17:54:53,77771111,77771111,ord_test_p0_77771111,,5000,INR,Razorpay,,PENDING,,0,
+12,payment_page_opened,2026-10-05 17:54:53,77771111,77771111,ord_test_p0_77771111,,5000,INR,Razorpay,,OPENED,,0,
+13,payment_success,2026-10-05 17:54:53,77771111,77771111,ord_test_p0_77771111,pay_test_p0_123,5000,INR,instamojo,upi,SUCCESS,,0,
+14,payment_verified,2026-10-05 17:54:53,77771111,77771111,ord_test_p0_77771111,pay_test_p0_123,5000,INR,instamojo,upi,VERIFIED,,0,
+15,payment_recorded,2026-10-05 17:54:53,77771111,77771111,ord_test_p0_77771111,pay_test_p0_123,5000,INR,instamojo,upi,RECORDED,,0,
+16,access_unlocked,2026-10-05 17:54:53,77771111,77771111,ord_test_p0_77771111,pay_test_p0_123,5000,INR,instamojo,upi,UNLOCKED,,1,2026-10-05 17:54:53
