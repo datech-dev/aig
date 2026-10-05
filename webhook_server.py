@@ -138,30 +138,33 @@ async def handle_instamojo_webhook(request):
             payment_gateway="instamojo"
         )
         
-    if (status in ("Credit", "SUCCESS", "completed", "paid")) and telegram_id:
-        unlocked_now, expiry, msg_str = database.unlock_paid_access_idempotent(
-            telegram_id=telegram_id,
-            order_id=payment_request_id,
-            payment_id=payment_id,
-            item_type=item_type,
-            gateway="instamojo",
-            amount=amount
-        )
-        
-        tg_app = request.app.get('tg_app')
-        if tg_app and unlocked_now:
-            try:
-                if item_type == "chat_pass":
-                    confirm_text = "You're back. Your 1-day access is now active. Let's continue where we left off. 💖"
-                else:
-                    confirm_text = "✅ <b>Payment Successful!</b>\n\n10 image credits have been added to your account!"
-                await tg_app.bot.send_message(
-                    chat_id=telegram_id,
-                    text=confirm_text,
-                    parse_mode="HTML"
-                )
-            except Exception as tg_err:
-                logger.error(f"Failed to send webhook confirmation message to user {telegram_id}: {tg_err}")
+    try:
+        if (status in ("Credit", "SUCCESS", "completed", "paid")) and telegram_id:
+            unlocked_now, expiry, msg_str = database.unlock_paid_access_idempotent(
+                telegram_id=telegram_id,
+                order_id=payment_request_id,
+                payment_id=payment_id,
+                item_type=item_type,
+                gateway="instamojo",
+                amount=amount
+            )
+            
+            tg_app = request.app.get('tg_app')
+            if tg_app and unlocked_now:
+                try:
+                    if item_type == "chat_pass":
+                        confirm_text = "You're back. Your 1-day access is now active. Let's continue where we left off. 💖"
+                    else:
+                        confirm_text = "✅ <b>Payment Successful!</b>\n\n10 image credits have been added to your account!"
+                    await tg_app.bot.send_message(
+                        chat_id=telegram_id,
+                        text=confirm_text,
+                        parse_mode="HTML"
+                    )
+                except Exception as tg_err:
+                    logger.error(f"Failed to send webhook confirmation message to user {telegram_id}: {tg_err}")
+    except Exception as e_wh:
+        logger.error(f"Error executing Instamojo webhook unlock: {e_wh}")
 
     return web.Response(text="OK", status=200)
 
@@ -603,57 +606,58 @@ async def handle_instamojo_callback(request):
     Handles user redirect back from Instamojo after payment attempt.
     Query parameters: payment_id, payment_status, payment_request_id.
     """
-    payment_id = request.query.get("payment_id")
-    payment_status = request.query.get("payment_status")
-    payment_request_id = request.query.get("payment_request_id")
-    
-    logger.info(f"Instamojo callback: payment_id={payment_id}, status={payment_status}, request_id={payment_request_id}")
-
-    conn = database.get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM payments WHERE order_id = ?", (payment_request_id,))
-    row = cursor.fetchone()
-    conn.close()
-
-    telegram_id = row["telegram_id"] if row else 0
-    item_type = row["item_type"] if row else "chat_pass"
-    amount = row["amount"] if row else 5000
-
-    tg_app = request.app.get('tg_app')
-    bot_username = "KarinAICompanionBot"
-    if tg_app and tg_app.bot:
-        try:
-            bot_username = tg_app.bot.username or bot_username
-        except Exception:
-            pass
-            
-    bot_link = f"https://t.me/{bot_username}"
-
-    if payment_status in ("Credit", "SUCCESS", "completed", "paid"):
-        unlocked_now, expiry, msg_str = database.unlock_paid_access_idempotent(
-            telegram_id=telegram_id,
-            order_id=payment_request_id,
-            payment_id=payment_id,
-            item_type=item_type,
-            gateway="instamojo",
-            amount=amount
-        )
+    try:
+        payment_id = request.query.get("payment_id")
+        payment_status = request.query.get("payment_status")
+        payment_request_id = request.query.get("payment_request_id")
         
-        if tg_app and unlocked_now and telegram_id:
-            try:
-                if item_type == "chat_pass":
-                    confirm_text = "You're back. Your 1-day access is now active. Let's continue where we left off. 💖"
-                else:
-                    confirm_text = "✅ <b>Payment Successful!</b>\n\n10 image credits have been added to your account!"
-                await tg_app.bot.send_message(
-                    chat_id=telegram_id,
-                    text=confirm_text,
-                    parse_mode="HTML"
-                )
-            except Exception as tg_err:
-                logger.error(f"Failed to send confirmation message to user {telegram_id}: {tg_err}")
+        logger.info(f"Instamojo callback: payment_id={payment_id}, status={payment_status}, request_id={payment_request_id}")
 
-        html_content = f"""<!DOCTYPE html>
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM payments WHERE order_id = ?", (payment_request_id,))
+        row = cursor.fetchone()
+        conn.close()
+
+        telegram_id = row["telegram_id"] if row else 0
+        item_type = row["item_type"] if row else "chat_pass"
+        amount = row["amount"] if row else 5000
+
+        tg_app = request.app.get('tg_app')
+        bot_username = "KarinAICompanionBot"
+        if tg_app and tg_app.bot:
+            try:
+                bot_username = tg_app.bot.username or bot_username
+            except Exception:
+                pass
+                
+        bot_link = f"https://t.me/{bot_username}"
+
+        if payment_status in ("Credit", "SUCCESS", "completed", "paid"):
+            unlocked_now, expiry, msg_str = database.unlock_paid_access_idempotent(
+                telegram_id=telegram_id,
+                order_id=payment_request_id,
+                payment_id=payment_id,
+                item_type=item_type,
+                gateway="instamojo",
+                amount=amount
+            )
+            
+            if tg_app and unlocked_now and telegram_id:
+                try:
+                    if item_type == "chat_pass":
+                        confirm_text = "You're back. Your 1-day access is now active. Let's continue where we left off. 💖"
+                    else:
+                        confirm_text = "✅ <b>Payment Successful!</b>\n\n10 image credits have been added to your account!"
+                    await tg_app.bot.send_message(
+                        chat_id=telegram_id,
+                        text=confirm_text,
+                        parse_mode="HTML"
+                    )
+                except Exception as tg_err:
+                    logger.error(f"Failed to send confirmation message to user {telegram_id}: {tg_err}")
+
+            html_content = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -679,18 +683,18 @@ async def handle_instamojo_callback(request):
     </div>
 </body>
 </html>"""
-        return web.Response(text=html_content, content_type="text/html")
-    else:
-        database.log_payment_event(
-            event_name="payment_failed",
-            telegram_user_id=telegram_id,
-            order_id=payment_request_id,
-            payment_id=payment_id,
-            status="FAILED",
-            payment_gateway="instamojo",
-            failure_reason=f"Instamojo status: {payment_status}"
-        )
-        html_content = f"""<!DOCTYPE html>
+            return web.Response(text=html_content, content_type="text/html")
+        else:
+            database.log_payment_event(
+                event_name="payment_failed",
+                telegram_user_id=telegram_id,
+                order_id=payment_request_id,
+                payment_id=payment_id,
+                status="FAILED",
+                payment_gateway="instamojo",
+                failure_reason=f"Instamojo status: {payment_status}"
+            )
+            html_content = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -715,7 +719,10 @@ async def handle_instamojo_callback(request):
     </div>
 </body>
 </html>"""
-        return web.Response(text=html_content, content_type="text/html")
+            return web.Response(text=html_content, content_type="text/html")
+    except Exception as err_cb:
+        logger.error(f"Error in handle_instamojo_callback: {err_cb}")
+        return web.Response(text="Payment callback received. You can close this window and return to Telegram.", status=200)
 
 
 async def handle_instamojo_mock(request):
