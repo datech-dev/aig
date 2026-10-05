@@ -175,7 +175,7 @@ def _is_valid_cred(val: str) -> bool:
     if not val:
         return False
     val = val.strip()
-    return bool(val and "xxxx" not in val.lower() and "YOUR_" not in val and len(val) > 10)
+    return bool(val and "xxxx" not in val.lower() and "YOUR_" not in val and len(val) >= 8)
 
 
 async def handle_create_order(request):
