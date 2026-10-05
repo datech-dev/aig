@@ -493,140 +493,82 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         )
         
     elif data == "pay_chat_pass":
-        if not config.RAZORPAY_KEY_ID or config.RAZORPAY_KEY_ID == "YOUR_RAZORPAY_KEY_ID":
-            # Track simulated payment intent and completion
-            database.log_payment_intent(user_id, "chat_pass", 5000, "simulated_chat_pass")
-            database.mark_payment_intent_completed(user_id, "simulated_chat_pass", "chat_pass")
-            # Fall back to simulated payment
-            await query.message.edit_text("⚠️ <i>Razorpay API Key is missing in .env. Simulating successful checkout...</i>", parse_mode="HTML")
-            await asyncio.sleep(1.0)
-            expiry = database.grant_chat_pass(user_id, hours=config.CHAT_PASS_DURATION_HOURS)
-            expiry_str = expiry.strftime("%Y-%m-%d %H:%M:%S UTC")
-            success_text = (
-                f"✅ <b>Payment Successful (Simulated)!</b>\n\n"
-                f"Thank you! Your 1-day unlimited chat pass has been activated.\n"
-                f"• <b>Expires at:</b> <code>{expiry_str}</code>\n\n"
-                f"You can now continue chatting with Karin!"
-            )
-            keyboard = [[InlineKeyboardButton("🔙 Back to Profile", callback_data="profile_back")]]
-            await query.message.edit_text(success_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
-        else:
+        database.log_payment_event("pay_button_clicked", user_id, status="CLICKED")
+        
+        order_id = f"ord_{user_id}_{int(asyncio.get_event_loop().time())}"
+        if config.RAZORPAY_KEY_ID and config.RAZORPAY_KEY_ID != "YOUR_RAZORPAY_KEY_ID":
             try:
-                await query.message.edit_text("🔄 <i>Generating Razorpay payment link...</i>", parse_mode="HTML")
                 import razorpay
                 client = razorpay.Client(auth=(config.RAZORPAY_KEY_ID, config.RAZORPAY_KEY_SECRET))
-                
-                bot_info = await context.bot.get_me()
-                bot_username = bot_info.username
-                
-                # Create payment link (₹50 in paisa = 5000)
-                payment_link = client.payment_link.create({
+                order_data = client.order.create({
                     "amount": 5000,
                     "currency": "INR",
-                    "accept_partial": False,
-                    "description": "1 Day Karin Chat Pass",
-                    "customer": {
-                        "name": query.from_user.first_name,
-                    },
-                    "notify": {
-                        "sms": False,
-                        "email": False
-                    },
-                    "reminder_enable": False,
+                    "receipt": f"rec_{user_id}_{int(asyncio.get_event_loop().time())}",
                     "notes": {
                         "user_id": str(user_id),
-                        "payload": "chat_pass"
-                    },
-                    "callback_url": f"https://t.me/{bot_username}",
-                    "callback_method": "get"
+                        "item_type": "chat_pass"
+                    }
                 })
-                
-                short_url = payment_link["short_url"]
-                pl_id = payment_link.get("id") or short_url
-                
-                # Log payment intent so users who generate payment link and leave are tracked!
-                database.log_payment_intent(user_id, "chat_pass", 5000, pl_id)
-                
-                checkout_text = (
-                    f"💳 <b>Razorpay Checkout</b>\n\n"
-                    f"Click the button below to pay <b>₹50</b> via UPI, Card, or Netbanking to activate your 1-Day Chat Pass."
-                )
-                keyboard = [
-                    [InlineKeyboardButton("🔗 Pay ₹50 via Razorpay", url=short_url)],
-                    [InlineKeyboardButton("🔙 Back to Profile", callback_data="profile_back")]
-                ]
-                await query.message.edit_text(checkout_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+                order_id = order_data["id"]
             except Exception as e:
-                logger.error(f"Failed to generate Razorpay chat pass link: {e}")
-                await query.message.edit_text(f"❌ Failed to initiate checkout: {str(e)}")
+                logger.error(f"Failed to create Razorpay Order: {e}")
+
+        # Register transaction order in payments & log payment_order_created
+        database.create_payment_order(user_id, order_id=order_id, amount=5000, item_type="chat_pass")
+        
+        checkout_base = config.WEB_CHECKOUT_URL.rstrip('/')
+        checkout_url = f"{checkout_base}/checkout?order_id={order_id}"
+        
+        checkout_text = (
+            f"💬 <b>UNLIMITED CHAT PASS (24 HOURS)</b>\n\n"
+            f"Continue chatting with Karin for 1 day — <b>₹50</b>\n\n"
+            f"✨ Keep your full conversation history & memories intact!\n\n"
+            f"Click the button below to open your secure hosted payment page and complete your ₹50 purchase via UPI, Card, or NetBanking."
+        )
+        keyboard = [
+            [InlineKeyboardButton("💳 Continue for ₹50 — Open Payment Page", url=checkout_url)],
+            [InlineKeyboardButton("🔙 Back to Profile", callback_data="profile_back")]
+        ]
+        await query.message.edit_text(checkout_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
         
     elif data == "pay_image_credits":
-        if not config.RAZORPAY_KEY_ID or config.RAZORPAY_KEY_ID == "YOUR_RAZORPAY_KEY_ID":
-            # Track simulated payment intent and completion
-            database.log_payment_intent(user_id, "image_credits", 5000, "simulated_image_credits")
-            database.mark_payment_intent_completed(user_id, "simulated_image_credits", "image_credits")
-            # Fall back to simulated payment
-            await query.message.edit_text("⚠️ <i>Razorpay API Key is missing in .env. Simulating successful checkout...</i>", parse_mode="HTML")
-            await asyncio.sleep(1.0)
-            database.grant_image_credits(user_id, amount=10)
-            billing = database.get_user_billing(user_id)
-            success_text = (
-                f"✅ <b>Payment Successful (Simulated)!</b>\n\n"
-                f"Thank you! 10 image credits have been added to your account.\n"
-                f"• <b>Total Image Balance:</b> <code>{billing['image_credits']}</code> credits.\n\n"
-                f"You can now generate pictures of Karin!"
-            )
-            keyboard = [[InlineKeyboardButton("🔙 Back to Profile", callback_data="profile_back")]]
-            await query.message.edit_text(success_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
-        else:
+        database.log_payment_event("pay_button_clicked", user_id, status="CLICKED")
+        
+        order_id = f"ord_img_{user_id}_{int(asyncio.get_event_loop().time())}"
+        if config.RAZORPAY_KEY_ID and config.RAZORPAY_KEY_ID != "YOUR_RAZORPAY_KEY_ID":
             try:
-                await query.message.edit_text("🔄 <i>Generating Razorpay payment link...</i>", parse_mode="HTML")
                 import razorpay
                 client = razorpay.Client(auth=(config.RAZORPAY_KEY_ID, config.RAZORPAY_KEY_SECRET))
-                
-                bot_info = await context.bot.get_me()
-                bot_username = bot_info.username
-                
-                # Create payment link (₹50 in paisa = 5000)
-                payment_link = client.payment_link.create({
+                order_data = client.order.create({
                     "amount": 5000,
                     "currency": "INR",
-                    "accept_partial": False,
-                    "description": "10 Karin Image Credits",
-                    "customer": {
-                        "name": query.from_user.first_name,
-                    },
-                    "notify": {
-                        "sms": False,
-                        "email": False
-                    },
-                    "reminder_enable": False,
+                    "receipt": f"rec_img_{user_id}_{int(asyncio.get_event_loop().time())}",
                     "notes": {
                         "user_id": str(user_id),
-                        "payload": "image_credits"
-                    },
-                    "callback_url": f"https://t.me/{bot_username}",
-                    "callback_method": "get"
+                        "item_type": "image_credits"
+                    }
                 })
-                
-                short_url = payment_link["short_url"]
-                pl_id = payment_link.get("id") or short_url
-                
-                # Log payment intent so users who generate payment link and leave are tracked!
-                database.log_payment_intent(user_id, "image_credits", 5000, pl_id)
-                
-                checkout_text = (
-                    f"💳 <b>Razorpay Checkout</b>\n\n"
-                    f"Click the button below to pay <b>₹50</b> via UPI, Card, or Netbanking to purchase 10 image credits."
-                )
-                keyboard = [
-                    [InlineKeyboardButton("🔗 Pay ₹50 via Razorpay", url=short_url)],
-                    [InlineKeyboardButton("🔙 Back to Profile", callback_data="profile_back")]
-                ]
-                await query.message.edit_text(checkout_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
+                order_id = order_data["id"]
             except Exception as e:
-                logger.error(f"Failed to generate Razorpay image credits link: {e}")
-                await query.message.edit_text(f"❌ Failed to initiate checkout: {str(e)}")
+                logger.error(f"Failed to create Razorpay Image Order: {e}")
+
+        # Register transaction order in payments & log payment_order_created
+        database.create_payment_order(user_id, order_id=order_id, amount=5000, item_type="image_credits")
+        
+        checkout_base = config.WEB_CHECKOUT_URL.rstrip('/')
+        checkout_url = f"{checkout_base}/checkout?order_id={order_id}"
+        
+        checkout_text = (
+            f"📸 <b>10 KARIN IMAGE CREDITS</b>\n\n"
+            f"10 Custom Photo Credits — <b>₹50</b>\n\n"
+            f"Generate custom pictures of Karin using Venice lustify-v7!\n\n"
+            f"Click the button below to open your secure payment page and complete your ₹50 purchase."
+        )
+        keyboard = [
+            [InlineKeyboardButton("💳 Continue for ₹50 — Open Payment Page", url=checkout_url)],
+            [InlineKeyboardButton("🔙 Back to Profile", callback_data="profile_back")]
+        ]
+        await query.message.edit_text(checkout_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
         
     # 5. Back to Profile
     elif data == "profile_back":
@@ -958,12 +900,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         if not is_subscribed:
             if free_used >= config.FREE_MESSAGE_LIMIT:
+                database.log_payment_event("paywall_shown", user.id, status="SHOWN")
                 settings = database.get_user_settings(user.id)
                 u_nick = settings["user_nickname"] if (settings and settings.get("user_nickname")) else user.first_name
                 paywall_text = (
                     f"🥺 <b>Aww {html.escape(u_nick)}... Our free trial time just ran out for today!</b>\n\n"
                     f"I was having so much fun chatting with you and getting close... I really don't want us to stop here! 💖\n\n"
-                    f"Unlock <b>24 Hours of Unlimited Chat</b> with me right now for just <b>₹50</b> so we can keep talking all day & night! 👇"
+                    f"<b>Continue chatting with Karin for 1 day — ₹50</b> 👇"
                 )
                 await safe_send_reply(
                     update,

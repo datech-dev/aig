@@ -6,6 +6,7 @@ from unittest.mock import patch, AsyncMock
 # Add root directory to python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
+from datetime import datetime
 import config
 import database
 import ai_engine
@@ -531,5 +532,64 @@ class TestGirlfriendApp(unittest.TestCase):
         database.clear_user_memories(u_id)
         self.assertEqual(len(database.get_user_memories(u_id)), 0)
 
+    def test_17_payment_page_event_tracking_and_daily_report(self):
+        """Verify complete P0 payment event tracking, idempotency, and daily CSV report generation."""
+        test_user_id = 77771111
+        database.setup_user(test_user_id, "p0_tester", "P0Tester")
+        
+        # 1. Log payment events across lifecycle
+        database.log_payment_event("paywall_shown", test_user_id, status="SHOWN")
+        database.log_payment_event("pay_button_clicked", test_user_id, status="CLICKED")
+        
+        order_id = f"ord_test_p0_{test_user_id}"
+        database.create_payment_order(test_user_id, order_id=order_id, amount=5000, item_type="chat_pass")
+        database.log_payment_event("payment_page_opened", test_user_id, order_id=order_id, amount=5000, status="OPENED")
+        
+        # 2. Test idempotent unlock
+        unlocked1, exp1, msg1 = database.unlock_paid_access_idempotent(
+            telegram_id=test_user_id,
+            order_id=order_id,
+            payment_id="pay_test_p0_123",
+            item_type="chat_pass",
+            payment_method="upi",
+            amount=5000
+        )
+        self.assertTrue(unlocked1)
+        self.assertEqual(msg1, "Access unlocked successfully")
+        
+        # Duplicate call with same order/payment
+        unlocked2, exp2, msg2 = database.unlock_paid_access_idempotent(
+            telegram_id=test_user_id,
+            order_id=order_id,
+            payment_id="pay_test_p0_123",
+            item_type="chat_pass",
+            payment_method="upi",
+            amount=5000
+        )
+        self.assertFalse(unlocked2)
+        self.assertEqual(msg2, "Already processed")
+        
+        # 3. Verify user subscription status
+        self.assertTrue(database.is_chat_subscribed(test_user_id))
+        
+        # 4. Generate daily CSV report under assets/
+        today_str = datetime.utcnow().strftime("%Y-%m-%d")
+        report_file, count = database.generate_daily_payment_event_report(today_str)
+        self.assertIsNotNone(report_file)
+        self.assertTrue(os.path.exists(report_file))
+        self.assertGreaterEqual(count, 5) # At least our logged events
+        
+        # Verify CSV headers & non-sensitive columns
+        import csv
+        with open(report_file, mode="r", encoding="utf-8") as f:
+            reader = csv.reader(f)
+            header = next(reader)
+            self.assertIn("event_name", header)
+            self.assertIn("telegram_user_id", header)
+            self.assertIn("order_id", header)
+            self.assertIn("access_unlocked", header)
+
+
 if __name__ == "__main__":
     unittest.main()
+

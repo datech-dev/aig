@@ -11,13 +11,11 @@ logger = logging.getLogger(__name__)
 async def handle_razorpay_webhook(request):
     """
     Receives and processes POST webhooks from Razorpay.
-    Verifies signature and grants chat passes or image credits.
+    Verifies signature, logs webhook event, and grants chat passes or image credits idempotently.
     """
-    # Read raw body
     body_bytes = await request.read()
     body_str = body_bytes.decode('utf-8')
     
-    # Verify signature
     signature = request.headers.get('X-Razorpay-Signature')
     if not signature:
         logger.warning("Received Razorpay webhook request without signature header.")
@@ -25,20 +23,16 @@ async def handle_razorpay_webhook(request):
         
     webhook_secret = config.RAZORPAY_WEBHOOK_SECRET
     if not webhook_secret or webhook_secret == "YOUR_RAZORPAY_WEBHOOK_SECRET":
-        # Fallback/warning if not configured
         logger.error("RAZORPAY_WEBHOOK_SECRET is not configured. Webhook verification skipped.")
         return web.Response(text="Server configuration error", status=500)
         
-    # Verify using Razorpay client utilities
     try:
         client = razorpay.Client(auth=(config.RAZORPAY_KEY_ID, config.RAZORPAY_KEY_SECRET))
-        # This will raise SignatureVerificationError if verification fails
         client.utility.verify_webhook_signature(body_str, signature, webhook_secret)
     except Exception as e:
         logger.warning(f"Razorpay webhook signature verification failed: {e}")
         return web.Response(text="Invalid signature", status=400)
         
-    # Signature is valid. Parse payload.
     try:
         data = json.loads(body_str)
     except Exception as e:
@@ -46,80 +40,59 @@ async def handle_razorpay_webhook(request):
         return web.Response(text="Invalid JSON", status=400)
         
     event = data.get("event")
-    logger.info(f"Received verified Razorpay event: {event}")
+    logger.info(f"Received verified Razorpay webhook event: {event}")
     
-    if event == "payment_link.paid":
-        payload_data = data.get("payload", {})
-        plink = payload_data.get("payment_link", {}).get("entity", {})
-        notes = plink.get("notes", {})
+    payload_data = data.get("payload", {})
+    payment_entity = payload_data.get("payment", {}).get("entity", {})
+    order_entity = payload_data.get("order", {}).get("entity", {})
+    plink_entity = payload_data.get("payment_link", {}).get("entity", {})
+    
+    notes = payment_entity.get("notes") or order_entity.get("notes") or plink_entity.get("notes") or {}
+    user_id_str = notes.get("user_id")
+    item_type = notes.get("item_type") or notes.get("payload") or "chat_pass"
+    order_id = payment_entity.get("order_id") or order_entity.get("id") or plink_entity.get("id")
+    payment_id = payment_entity.get("id") or plink_entity.get("id")
+    amount = payment_entity.get("amount") or order_entity.get("amount") or plink_entity.get("amount") or 5000
+    payment_method = payment_entity.get("method")
+    
+    user_id = int(user_id_str) if user_id_str else None
+    
+    if user_id:
+        database.log_payment_event(
+            event_name="webhook_received",
+            telegram_user_id=user_id,
+            order_id=order_id,
+            payment_id=payment_id,
+            amount=amount,
+            status=event,
+            payment_method=payment_method
+        )
         
-        user_id_str = notes.get("user_id")
-        item_type = notes.get("payload")
+    if event in ("order.paid", "payment.captured", "payment.authorized", "payment_link.paid") and user_id:
+        unlocked_now, expiry, msg_str = database.unlock_paid_access_idempotent(
+            telegram_id=user_id,
+            order_id=order_id,
+            payment_id=payment_id,
+            item_type=item_type,
+            payment_method=payment_method,
+            amount=amount
+        )
         
-        if not user_id_str or not item_type:
-            logger.warning(f"Webhook payment_link.paid missing user_id or payload in notes. Notes: {notes}")
-            return web.Response(text="Missing notes data", status=200) # Still return 200 to acknowledge webhook
-            
-        try:
-            user_id = int(user_id_str)
-            # Log successful payment link payment
-            database.log_payment(
-                telegram_id=user_id,
-                payment_id=plink.get("id"),
-                order_id=None,
-                amount=plink.get("amount", 0),
-                item_type=item_type
-            )
-        except ValueError:
-            logger.error(f"Invalid user_id in notes: {user_id_str}")
-            return web.Response(text="Invalid user_id", status=200)
-            
-        # Get telegram app instance from web application context
         tg_app = request.app.get('tg_app')
-        if not tg_app:
-            logger.error("Telegram Application instance not found in web app context.")
-            return web.Response(text="Internal server error", status=500)
-            
-        if item_type == "chat_pass":
-            expiry = database.grant_chat_pass(user_id, hours=config.CHAT_PASS_DURATION_HOURS)
-            expiry_str = expiry.strftime("%Y-%m-%d %H:%M:%S UTC")
-            logger.info(f"Granted 1 day chat pass to user {user_id} via Razorpay webhook. Expires: {expiry_str}")
-            
+        if tg_app and unlocked_now:
             try:
+                if item_type == "chat_pass":
+                    confirm_text = "You're back. Your 1-day access is now active. Let's continue where we left off. 💖"
+                else:
+                    confirm_text = "✅ <b>Payment Successful!</b>\n\n10 image credits have been added to your account!"
                 await tg_app.bot.send_message(
                     chat_id=user_id,
-                    text=(
-                        f"✅ <b>Payment Successful!</b>\n\n"
-                        f"Thank you for your payment! Your 1-day unlimited chat pass has been activated.\n"
-                        f"• <b>Expires at:</b> <code>{expiry_str}</code>\n\n"
-                        f"You can now continue chatting with Karin!"
-                    ),
+                    text=confirm_text,
                     parse_mode="HTML"
                 )
             except Exception as tg_err:
-                logger.error(f"Failed to send confirmation message to user {user_id}: {tg_err}")
-                
-        elif item_type == "image_credits":
-            database.grant_image_credits(user_id, amount=10)
-            billing = database.get_user_billing(user_id)
-            logger.info(f"Granted 10 image credits to user {user_id} via Razorpay webhook. Balance: {billing['image_credits']}")
-            
-            try:
-                await tg_app.bot.send_message(
-                    chat_id=user_id,
-                    text=(
-                        f"✅ <b>Payment Successful!</b>\n\n"
-                        f"Thank you for your payment! 10 image credits have been added to your account.\n"
-                        f"• <b>Total Image Balance:</b> <code>{billing['image_credits']}</code> credits.\n\n"
-                        f"You can now generate pictures of Karin!"
-                    ),
-                    parse_mode="HTML"
-                )
-            except Exception as tg_err:
-                logger.error(f"Failed to send confirmation message to user {user_id}: {tg_err}")
-        else:
-            logger.warning(f"Unknown item type in webhook notes payload: {item_type}")
-            
+                logger.error(f"Failed to send webhook confirmation message to user {user_id}: {tg_err}")
+
     return web.Response(text="OK", status=200)
 
 async def handle_home(request):
@@ -207,7 +180,7 @@ async def handle_create_order(request):
 
 async def handle_verify_payment(request):
     """
-    Verifies Razorpay payment signature and updates the SQLite database.
+    Verifies Razorpay payment signature and updates the SQLite database idempotently.
     Expects JSON payload with: razorpay_payment_id, razorpay_order_id, razorpay_signature.
     """
     import hmac
@@ -240,106 +213,71 @@ async def handle_verify_payment(request):
     
     if not hmac.compare_digest(generated_signature, signature):
         logger.warning(f"Payment signature mismatch. Order: {order_id}, Payment: {payment_id}")
+        database.log_payment_event(
+            event_name="payment_failed",
+            telegram_user_id=data.get("user_id") or 0,
+            order_id=order_id,
+            payment_id=payment_id,
+            status="FAILED",
+            failure_reason="Invalid signature mismatch"
+        )
         return web.json_response({"error": "Invalid signature mismatch"}, status=400)
         
-    # Successfully verified! Update database
+    # Signature verified! Idempotently unlock access
     try:
         key_id = config.RAZORPAY_KEY_ID
         client = razorpay.Client(auth=(key_id, key_secret))
         order = client.order.fetch(order_id)
         notes = order.get("notes", {})
         
-        user_id_str = notes.get("user_id")
-        item_type = notes.get("item_type")
+        user_id_str = notes.get("user_id") or data.get("user_id")
+        item_type = notes.get("item_type") or data.get("item_type") or "chat_pass"
+        amount = order.get("amount", 5000)
         
-        # Fallbacks from frontend payload in case notes are missing from Order object
         if not user_id_str:
-            user_id_str = data.get("user_id")
-        if not item_type:
-            item_type = data.get("item_type")
-            
-        if not user_id_str or not item_type:
-            logger.warning(f"Payment signature verified but missing user_id or item_type. Notes: {notes}")
+            logger.warning(f"Payment signature verified but missing user_id. Notes: {notes}")
             return web.json_response({
                 "success": True, 
                 "message": "Payment verified but user metadata missing. Please contact support."
             })
             
         user_id = int(user_id_str)
-        # Log successful standard checkout payment
-        database.log_payment(
+        unlocked_now, expiry, msg_str = database.unlock_paid_access_idempotent(
             telegram_id=user_id,
-            payment_id=payment_id,
             order_id=order_id,
-            amount=order.get("amount", 0),
-            item_type=item_type
+            payment_id=payment_id,
+            item_type=item_type,
+            amount=amount
         )
-        tg_app = request.app.get('tg_app')
         
-        if item_type == "chat_pass":
-            expiry = database.grant_chat_pass(user_id, hours=config.CHAT_PASS_DURATION_HOURS)
-            expiry_str = expiry.strftime("%Y-%m-%d %H:%M:%S UTC")
-            logger.info(f"Granted 1 day chat pass to user {user_id} via Standard Checkout. Expires: {expiry_str}")
-            
-            if tg_app:
-                try:
-                    await tg_app.bot.send_message(
-                        chat_id=user_id,
-                        text=(
-                            f"✅ <b>Payment Successful!</b>\n\n"
-                            f"Thank you for your payment! Your 1-day unlimited chat pass has been activated.\n"
-                            f"• <b>Expires at:</b> <code>{expiry_str}</code>\n\n"
-                            f"You can now continue chatting with Karin!"
-                        ),
-                        parse_mode="HTML"
+        tg_app = request.app.get('tg_app')
+        if tg_app and unlocked_now:
+            try:
+                if item_type == "chat_pass":
+                    confirm_text = (
+                        "You're back. Your 1-day access is now active. Let's continue where we left off. 💖"
                     )
-                except Exception as tg_err:
-                    logger.error(f"Failed to send confirmation message to user {user_id}: {tg_err}")
-                     
-            return web.json_response({
-                "success": True, 
-                "message": "Payment verified and Chat Pass granted!",
-                "item_type": "chat_pass",
-                "details": f"Expires at {expiry_str}"
-            })
-            
-        elif item_type == "image_credits":
-            database.grant_image_credits(user_id, amount=10)
-            billing = database.get_user_billing(user_id)
-            new_balance = billing.get("image_credits", 0)
-            logger.info(f"Granted 10 image credits to user {user_id} via Standard Checkout. Balance: {new_balance}")
-            
-            if tg_app:
-                try:
-                    await tg_app.bot.send_message(
-                        chat_id=user_id,
-                        text=(
-                            f"✅ <b>Payment Successful!</b>\n\n"
-                            f"Thank you for your payment! 10 image credits have been added to your account.\n"
-                            f"• <b>Total Image Balance:</b> <code>{new_balance}</code> credits.\n\n"
-                            f"You can now generate pictures of Karin!"
-                        ),
-                        parse_mode="HTML"
+                else:
+                    confirm_text = (
+                        "✅ <b>Payment Successful!</b>\n\n10 image credits have been added to your account! You can now generate photos with Karin!"
                     )
-                except Exception as tg_err:
-                    logger.error(f"Failed to send confirmation message to user {user_id}: {tg_err}")
-                    
-            return web.json_response({
-                "success": True, 
-                "message": "Payment verified and 10 Image Credits granted!",
-                "item_type": "image_credits",
-                "details": f"Total balance: {new_balance} credits"
-            })
-        else:
-            logger.warning(f"Unknown item_type verified: {item_type}")
-            return web.json_response({"success": True, "message": f"Payment verified but item type '{item_type}' not recognized."})
-             
-    except Exception as e:
-        logger.exception(f"Error handling verified payment callbacks: {e}")
+                await tg_app.bot.send_message(
+                    chat_id=user_id,
+                    text=confirm_text,
+                    parse_mode="HTML"
+                )
+            except Exception as tg_err:
+                logger.error(f"Failed to send confirmation message to user {user_id}: {tg_err}")
+                
         return web.json_response({
-            "success": False, 
-            "error": f"Payment verified but database update failed: {str(e)}"
-        }, status=500)
+            "success": True, 
+            "message": "Payment verified and access unlocked!",
+            "item_type": item_type
+        })
+    except Exception as e:
+        logger.exception(f"Error processing verify payment: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
 
 async def handle_get_config(request):
     """
@@ -612,6 +550,220 @@ async def handle_api_memories(request):
         return web.json_response({"success": False, "error": "Invalid action or user_id"}, status=400)
 
 
+async def handle_checkout_page(request):
+    """
+    Renders the Hosted Checkout Page for order payment.
+    Communicates value clearly: "Continue chatting with Karin for 1 day — ₹50".
+    Loads Razorpay JS SDK and handles success/failure/cancellation events.
+    """
+    order_id = request.query.get("order_id")
+    if not order_id:
+        return web.Response(text="Missing order_id parameter", status=400)
+
+    conn = database.get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM payments WHERE order_id = ?", (order_id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        return web.Response(text="Order transaction not found", status=404)
+
+    telegram_id = row["telegram_id"]
+    amount_paise = row["amount"] or 5000
+    amount_inr = f"{amount_paise / 100.0:.2f}"
+    item_type = row["item_type"] or "chat_pass"
+    key_id = config.RAZORPAY_KEY_ID or "rzp_test_key"
+
+    # Log payment_page_opened event
+    database.log_payment_event(
+        event_name="payment_page_opened",
+        telegram_user_id=telegram_id,
+        order_id=order_id,
+        amount=amount_paise,
+        status="OPENED"
+    )
+
+    item_title = "Continue chatting with Karin for 1 day — ₹50" if item_type == "chat_pass" else "10 Karin Image Credits — ₹50"
+    item_desc = "24 Hours Unlimited Chat Access with full memory retention" if item_type == "chat_pass" else "10 Custom Uncensored Photo Credits"
+
+    html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Checkout — Karin AI Companion</title>
+    <style>
+        * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }}
+        body {{ background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); color: #f8fafc; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }}
+        .card {{ background: rgba(30, 41, 59, 0.85); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 24px; padding: 36px; max-width: 440px; width: 100%; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); text-align: center; }}
+        .badge {{ background: linear-gradient(90deg, #ec4899, #8b5cf6); padding: 6px 16px; border-radius: 9999px; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; display: inline-block; margin-bottom: 20px; }}
+        h1 {{ font-size: 22px; font-weight: 700; margin-bottom: 12px; color: #ffffff; line-height: 1.3; }}
+        p.desc {{ font-size: 14px; color: #94a3b8; margin-bottom: 24px; line-height: 1.5; }}
+        .price-box {{ background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(236, 72, 153, 0.3); border-radius: 16px; padding: 20px; margin-bottom: 28px; }}
+        .price-amount {{ font-size: 36px; font-weight: 800; color: #ec4899; }}
+        .price-label {{ font-size: 13px; color: #cbd5e1; margin-top: 4px; }}
+        .btn {{ width: 100%; background: linear-gradient(90deg, #ec4899 0%, #d946ef 100%); color: white; border: none; padding: 16px; border-radius: 14px; font-size: 16px; font-weight: 700; cursor: pointer; transition: all 0.2s ease; box-shadow: 0 10px 25px -5px rgba(236, 72, 153, 0.4); }}
+        .btn:hover {{ transform: translateY(-2px); box-shadow: 0 15px 30px -5px rgba(236, 72, 153, 0.6); }}
+        .alert {{ padding: 20px; border-radius: 16px; margin-top: 20px; text-align: center; }}
+        .alert-success {{ background: rgba(34, 197, 94, 0.15); border: 1px solid rgba(34, 197, 94, 0.4); color: #4ade80; }}
+        .alert-danger {{ background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); color: #f87171; }}
+        .alert-warning {{ background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.4); color: #fbbf24; }}
+        .footer-note {{ margin-top: 20px; font-size: 12px; color: #64748b; }}
+    </style>
+</head>
+<body>
+    <div class="card" id="status-card">
+        <div class="badge">Karin AI Companion</div>
+        <h1>{item_title}</h1>
+        <p class="desc">{item_desc}</p>
+        <div class="price-box">
+            <div class="price-amount">₹{amount_inr}</div>
+            <div class="price-label">1-Day Unlimited Chat Pass (INR)</div>
+        </div>
+        <button class="btn" id="rzp-button1">Pay ₹{amount_inr} Now</button>
+        <div class="footer-note">🔒 Secured by Razorpay 256-Bit SSL Encryption</div>
+    </div>
+
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+    <script>
+    var options = {{
+        "key": "{key_id}",
+        "amount": {amount_paise},
+        "currency": "INR",
+        "name": "Karin AI Companion",
+        "description": "{item_title}",
+        "order_id": "{order_id}",
+        "handler": function (response){{
+            fetch('/api/verify-payment', {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{
+                    razorpay_payment_id: response.razorpay_payment_id,
+                    razorpay_order_id: response.razorpay_order_id,
+                    razorpay_signature: response.razorpay_signature,
+                    user_id: {telegram_id},
+                    item_type: "{item_type}"
+                }})
+            }}).then(r => r.json()).then(data => {{
+                if (data.success) {{
+                    document.getElementById('status-card').innerHTML = 
+                        '<div class="alert alert-success"><h3>✅ Payment Successful!</h3><p style="margin-top:10px;">You\\\'re back. Your 1-day access is now active. Let\\\'s continue where we left off!</p><p style="margin-top:15px;font-size:13px;color:#94a3b8;">You can now close this tab and return to Telegram.</p></div>';
+                }} else {{
+                    document.getElementById('status-card').innerHTML = 
+                        '<div class="alert alert-danger"><h3>❌ Verification Error</h3><p style="margin-top:8px;">' + (data.error || 'Payment verification failed.') + '</p><button onclick="window.location.reload()" class="btn" style="margin-top:15px;">Try Again</button></div>';
+                }}
+            }}).catch(err => {{
+                document.getElementById('status-card').innerHTML = 
+                    '<div class="alert alert-danger"><h3>❌ Network Error</h3><p>Payment verification request failed. Please check your connection.</p><button onclick="window.location.reload()" class="btn" style="margin-top:15px;">Try Again</button></div>';
+            }});
+        }},
+        "modal": {{
+            "ondismiss": function(){{
+                fetch('/api/payment-cancelled', {{
+                    method: 'POST',
+                    headers: {{'Content-Type': 'application/json'}},
+                    body: JSON.stringify({{ order_id: "{order_id}", user_id: {telegram_id} }})
+                }});
+                document.getElementById('status-card').innerHTML = 
+                    '<div class="alert alert-warning"><h3>⚠️ Payment Cancelled</h3><p style="margin-top:8px;">Payment didn\\\'t go through. Try again.</p><button onclick="window.location.reload()" class="btn" style="margin-top:15px;">Try Again</button></div>';
+            }}
+        }},
+        "theme": {{ "color": "#ec4899" }}
+    }};
+    var rzp1 = new Razorpay(options);
+    rzp1.on('payment.failed', function (response){{
+        var reason = response.error ? response.error.description : 'Transaction Failed';
+        fetch('/api/payment-failed', {{
+            method: 'POST',
+            headers: {{'Content-Type': 'application/json'}},
+            body: JSON.stringify({{
+                order_id: "{order_id}",
+                user_id: {telegram_id},
+                payment_id: response.error && response.error.metadata ? response.error.metadata.payment_id : null,
+                failure_reason: reason
+            }})
+        }});
+        document.getElementById('status-card').innerHTML = 
+            '<div class="alert alert-danger"><h3>❌ Payment Failed</h3><p style="margin-top:8px;">Payment didn\\\'t go through. Try again.</p><p style="font-size:12px;color:#94a3b8;margin-top:6px;">Reason: ' + reason + '</p><button onclick="window.location.reload()" class="btn" style="margin-top:15px;">Try Again</button></div>';
+    }});
+    document.getElementById('rzp-button1').onclick = function(e){{
+        rzp1.open();
+        e.preventDefault();
+    }}
+    window.onload = function() {{
+        rzp1.open();
+    }}
+    </script>
+</body>
+</html>"""
+    return web.Response(text=html_content, content_type='text/html')
+
+
+async def handle_api_payment_failed(request):
+    """Logs payment failure event and updates database."""
+    try:
+        data = await request.json()
+        order_id = data.get("order_id")
+        user_id = data.get("user_id")
+        payment_id = data.get("payment_id")
+        reason = data.get("failure_reason", "Payment Failed")
+
+        if order_id:
+            database.update_payment_status(order_id, "FAILED", payment_id=payment_id, failure_reason=reason)
+
+        if user_id:
+            database.log_payment_event(
+                event_name="payment_failed",
+                telegram_user_id=int(user_id),
+                order_id=order_id,
+                payment_id=payment_id,
+                status="FAILED",
+                failure_reason=reason
+            )
+            # Send Telegram retry prompt if tg_app available
+            tg_app = request.app.get('tg_app')
+            if tg_app:
+                try:
+                    await tg_app.bot.send_message(
+                        chat_id=int(user_id),
+                        text="⚠️ <b>Payment didn't go through. Try again.</b>",
+                        parse_mode="HTML"
+                    )
+                except Exception as e_tg:
+                    logger.error(f"Failed to send payment failure message to Telegram user {user_id}: {e_tg}")
+
+        return web.json_response({"success": True})
+    except Exception as e:
+        logger.error(f"Error in handle_api_payment_failed: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+
+async def handle_api_payment_cancelled(request):
+    """Logs payment cancellation event."""
+    try:
+        data = await request.json()
+        order_id = data.get("order_id")
+        user_id = data.get("user_id")
+
+        if order_id:
+            database.update_payment_status(order_id, "CANCELLED", failure_reason="User dismissed payment page")
+
+        if user_id:
+            database.log_payment_event(
+                event_name="payment_cancelled",
+                telegram_user_id=int(user_id),
+                order_id=order_id,
+                status="CANCELLED",
+                failure_reason="User dismissed payment page"
+            )
+
+        return web.json_response({"success": True})
+    except Exception as e:
+        logger.error(f"Error in handle_api_payment_cancelled: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+
 async def handle_admin_export_data(request):
     """API endpoint to export all users, abandoned checkouts, and payments data."""
     try:
@@ -644,6 +796,25 @@ async def handle_admin_export_data(request):
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
 
+async def start_daily_report_scheduler():
+    """Background task to auto-generate the daily payment event CSV report after 6:00 PM (18:00)."""
+    logger.info("Starting daily 6 PM payment event CSV report scheduler...")
+    from datetime import datetime
+    generated_today = None
+    while True:
+        try:
+            now = datetime.now()
+            today_str = now.strftime("%Y-%m-%d")
+            if now.hour >= 18 and generated_today != today_str:
+                filepath, count = database.generate_daily_payment_event_report(today_str)
+                if filepath:
+                    generated_today = today_str
+                    logger.info(f"Automated daily payment event report generated: {filepath} ({count} events)")
+        except Exception as e:
+            logger.error(f"Error in daily report scheduler: {e}")
+        await asyncio.sleep(60)
+
+
 async def start_webhook_server(application, port=8080):
     """
     Starts the aiohttp webhook server on the specified port.
@@ -651,10 +822,13 @@ async def start_webhook_server(application, port=8080):
     """
     app = web.Application()
     app.router.add_get('/', handle_home)
+    app.router.add_get('/checkout', handle_checkout_page)
     app.router.add_get('/api/config', handle_get_config)
     app.router.add_get('/api/admin/export-data', handle_admin_export_data)
     app.router.add_post('/api/create-order', handle_create_order)
     app.router.add_post('/api/verify-payment', handle_verify_payment)
+    app.router.add_post('/api/payment-failed', handle_api_payment_failed)
+    app.router.add_post('/api/payment-cancelled', handle_api_payment_cancelled)
     app.router.add_post('/webhook/razorpay', handle_razorpay_webhook)
     
     # Flutter Mobile App REST API Routes
@@ -677,4 +851,14 @@ async def start_webhook_server(application, port=8080):
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
     logger.info(f"Razorpay webhook & Mobile REST API server running on port {port}")
+
+    # Generate initial daily report & start 6 PM scheduler
+    try:
+        database.generate_daily_payment_event_report()
+    except Exception as e_rep:
+        logger.error(f"Error generating initial daily report: {e_rep}")
+        
+    asyncio.create_task(start_daily_report_scheduler())
+
     return runner
+
