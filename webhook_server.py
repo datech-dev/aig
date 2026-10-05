@@ -171,6 +171,13 @@ async def handle_home(request):
         logger.error(f"Error serving index.html: {e}")
         return web.Response(text="index.html not found on server", status=404)
 
+def _is_valid_cred(val: str) -> bool:
+    if not val:
+        return False
+    val = val.strip()
+    return bool(val and "xxxx" not in val.lower() and "YOUR_" not in val and len(val) > 10)
+
+
 async def handle_create_order(request):
     """
     Creates a Payment Order (Razorpay or Instamojo).
@@ -196,8 +203,8 @@ async def handle_create_order(request):
     except ValueError:
         return web.json_response({"error": "Invalid user_id or amount"}, status=400)
 
-    # If Razorpay keys are configured or explicitly requested
-    if (gateway_type == "razorpay" or config.RAZORPAY_KEY_ID) and config.RAZORPAY_KEY_ID and config.RAZORPAY_KEY_SECRET:
+    # If Razorpay keys are configured, valid, and not placeholders
+    if _is_valid_cred(config.RAZORPAY_KEY_ID) and _is_valid_cred(config.RAZORPAY_KEY_SECRET):
         try:
             import razorpay
             import time
@@ -231,8 +238,7 @@ async def handle_create_order(request):
                 "gateway": "razorpay"
             })
         except Exception as rzp_err:
-            logger.error(f"Razorpay order creation error: {rzp_err}")
-            return web.json_response({"error": f"Razorpay API Error: {str(rzp_err)}"}, status=400)
+            logger.warning(f"Razorpay order creation failed ({rzp_err}). Falling back to Instamojo...")
 
     # Fallback to Instamojo
     order_id, pay_url, err = await create_instamojo_payment_request(user_id, item_type, amount_inr=amount_inr)
