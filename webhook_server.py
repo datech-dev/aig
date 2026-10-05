@@ -811,7 +811,7 @@ async def handle_checkout_page(request):
                                 }} else {{
                                     throw new Error(vData.error || "Payment verification failed.");
                                 }}
-                            } catch (vErr) {{
+                             }} catch (vErr) {{
                                 payBtn.disabled = false;
                                 spinner.style.display = 'none';
                                 btnText.innerText = 'Pay ₹50 with Razorpay';

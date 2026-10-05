@@ -1103,11 +1103,12 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if stats["recent_payments"]:
             recent_text = "\n📈 <b>Recent Payments:</b>\n"
             for p in stats["recent_payments"]:
-                username_str = f"@{p['username']}" if p['username'] else f"ID: {p['telegram_id']}"
-                first_name_str = p['first_name'] if p['first_name'] else "User"
+                username_str = f"@{html.escape(str(p['username']))}" if p['username'] else f"ID: {p['telegram_id']}"
+                first_name_str = html.escape(str(p['first_name'])) if p['first_name'] else "User"
+                item_str = html.escape(str(p['item_type']))
                 recent_text += (
                     f"• {p['created_at'][:19]} - {first_name_str} ({username_str}) paid "
-                    f"<b>₹{p['amount_inr']:.2f}</b> for <code>{p['item_type']}</code>\n"
+                    f"<b>₹{p['amount_inr']:.2f}</b> for <code>{item_str}</code>\n"
                 )
         else:
             recent_text = "\n<i>No completed payments yet.</i>\n"
@@ -1116,8 +1117,8 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         trying_text = "\n📱 <b>Users Trying App:</b>\n"
         if stats.get("trying_users"):
             for u in stats["trying_users"][:10]: # show top 10 recent
-                u_str = f"@{u['username']}" if u['username'] else f"ID: {u['telegram_id']}"
-                name = u['first_name'] or "User"
+                u_str = f"@{html.escape(str(u['username']))}" if u['username'] else f"ID: {u['telegram_id']}"
+                name = html.escape(str(u['first_name'] or "User"))
                 sub_status = "Pass Active" if u['is_chat_subscribed'] else f"{u['free_messages_used']} msgs used"
                 trying_text += f"• {name} ({u_str}) - Joined: {u['created_at'][:10]} [{sub_status}]\n"
             if len(stats["trying_users"]) > 10:
@@ -1129,9 +1130,9 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         abandoned_text = "\n⚠️ <b>Users Clicked Pay ₹50 & Left (Payment Link Generated):</b>\n"
         if stats.get("abandoned_checkout_users"):
             for ab in stats["abandoned_checkout_users"][:10]: # show top 10
-                u_str = f"@{ab['username']}" if ab['username'] else f"ID: {ab['telegram_id']}"
-                name = ab['first_name'] or "User"
-                item = ab['item_type'] or "chat_pass"
+                u_str = f"@{html.escape(str(ab['username']))}" if ab['username'] else f"ID: {ab['telegram_id']}"
+                name = html.escape(str(ab['first_name'] or "User"))
+                item = html.escape(str(ab['item_type'] or "chat_pass"))
                 date_str = ab['created_at'][:19] if ab['created_at'] else "Recently"
                 abandoned_text += f"• {date_str} - {name} ({u_str}) generated ₹{ab['amount_inr']:.0f} link for <code>{item}</code> & left\n"
             if len(stats["abandoned_checkout_users"]) > 10:
