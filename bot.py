@@ -48,14 +48,13 @@ def get_chat_paywall_keyboard(user_id=None):
     else:
         pay_url = f"{base_url}/checkout"
         
-    web_app_url = pay_url
-    if web_app_url.startswith("http://"):
-        web_app_url = "https://" + web_app_url[7:]
+    if base_url.startswith("https://"):
+        btn = InlineKeyboardButton("💳 Continue for ₹50", web_app=WebAppInfo(url=pay_url))
+    else:
+        btn = InlineKeyboardButton("💳 Continue for ₹50", url=pay_url)
 
     keyboard = [
-        [
-            InlineKeyboardButton("💳 Continue for ₹50 (Pay inside Telegram)", web_app=WebAppInfo(url=web_app_url))
-        ],
+        [btn],
         [
             InlineKeyboardButton("🔙 View Profile / Balance", callback_data="profile_back")
         ]
@@ -69,14 +68,13 @@ def get_image_paywall_keyboard(user_id=None):
     else:
         pay_url = f"{base_url}/checkout"
 
-    web_app_url = pay_url
-    if web_app_url.startswith("http://"):
-        web_app_url = "https://" + web_app_url[7:]
+    if base_url.startswith("https://"):
+        btn = InlineKeyboardButton("💳 Continue for ₹50", web_app=WebAppInfo(url=pay_url))
+    else:
+        btn = InlineKeyboardButton("💳 Continue for ₹50", url=pay_url)
 
     keyboard = [
-        [
-            InlineKeyboardButton("💳 Continue for ₹50 (Pay inside Telegram)", web_app=WebAppInfo(url=web_app_url))
-        ],
+        [btn],
         [
             InlineKeyboardButton("🔙 View Profile / Balance", callback_data="profile_back")
         ]
