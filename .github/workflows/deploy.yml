@@ -20,5 +20,6 @@ jobs:
           git fetch origin main
           git reset --hard origin/main
           python3 -m venv .venv
-          .venv/bin/pip install -r requirements.txt
+          chmod +x setup_nginx_ssl.sh
+          bash setup_nginx_ssl.sh
           sudo systemctl restart karin-bot
