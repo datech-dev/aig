@@ -15,7 +15,7 @@ INSTAMOJO_API_KEY = os.getenv("INSTAMOJO_API_KEY", "")
 INSTAMOJO_AUTH_TOKEN = os.getenv("INSTAMOJO_AUTH_TOKEN", "")
 INSTAMOJO_SALT = os.getenv("INSTAMOJO_SALT", "")
 INSTAMOJO_ENDPOINT = os.getenv("INSTAMOJO_ENDPOINT", "https://www.instamojo.com/api/1.1/").rstrip("/") + "/"
-WEB_CHECKOUT_URL = os.getenv("WEB_CHECKOUT_URL", "http://zetagirl.zetalink.cloud:8080")
+WEB_CHECKOUT_URL = os.getenv("WEB_CHECKOUT_URL", "https://zetagirl.zetalink.cloud")
 
 
 # Paywall Configuration Constants
