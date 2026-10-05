@@ -203,12 +203,18 @@ async def handle_create_order(request):
     except ValueError:
         return web.json_response({"error": "Invalid user_id or amount"}, status=400)
 
-    # If Razorpay keys are configured, valid, and not placeholders
-    if _is_valid_cred(config.RAZORPAY_KEY_ID) and _is_valid_cred(config.RAZORPAY_KEY_SECRET):
+    # 1. Primary: Razorpay
+    rzp_key_id = (config.RAZORPAY_KEY_ID or "").strip()
+    rzp_key_secret = (config.RAZORPAY_KEY_SECRET or "").strip()
+    
+    if gateway_type == "razorpay" or _is_valid_cred(rzp_key_id):
+        if not _is_valid_cred(rzp_key_id) or not _is_valid_cred(rzp_key_secret):
+            return web.json_response({"error": "Razorpay API Keys are missing or invalid in .env configuration."}, status=400)
+            
         try:
             import razorpay
             import time
-            client = razorpay.Client(auth=(config.RAZORPAY_KEY_ID, config.RAZORPAY_KEY_SECRET))
+            client = razorpay.Client(auth=(rzp_key_id, rzp_key_secret))
             receipt_str = f"rcpt_{user_id}_{int(time.time())}"[:40]
             rzp_order = client.order.create({
                 "amount": amount_paise,
@@ -234,13 +240,14 @@ async def handle_create_order(request):
                 "order_id": order_id,
                 "amount": amount_paise,
                 "currency": "INR",
-                "key": config.RAZORPAY_KEY_ID,
+                "key": rzp_key_id,
                 "gateway": "razorpay"
             })
         except Exception as rzp_err:
-            logger.warning(f"Razorpay order creation failed ({rzp_err}). Falling back to Instamojo...")
+            logger.error(f"Razorpay order creation error: {rzp_err}")
+            return web.json_response({"error": f"Razorpay API Error: {str(rzp_err)}"}, status=400)
 
-    # Fallback to Instamojo
+    # 2. Secondary: Instamojo
     order_id, pay_url, err = await create_instamojo_payment_request(user_id, item_type, amount_inr=amount_inr)
     
     if not pay_url:

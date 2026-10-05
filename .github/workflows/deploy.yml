@@ -19,10 +19,10 @@ jobs:
           cd /var/www/aig
           git fetch origin main
           git reset --hard origin/main
-          [ -f .env ] || cp .env.example .env
-          sed -i 's/^RAZORPAY_KEY_ID=.*/RAZORPAY_KEY_ID=rzp_live_TkKVJLqWR1OmdL/' .env
-          sed -i 's/^RAZORPAY_KEY_SECRET=.*/RAZORPAY_KEY_SECRET=C9xubu4iHN8PaMF8Mcw11N8O/' .env
-          sed -i 's/^PAYMENT_GATEWAY=.*/PAYMENT_GATEWAY=razorpay/' .env
+          touch .env
+          grep -q "^RAZORPAY_KEY_ID=" .env && sed -i 's|^RAZORPAY_KEY_ID=.*|RAZORPAY_KEY_ID=rzp_live_TkKVJLqWR1OmdL|' .env || echo "RAZORPAY_KEY_ID=rzp_live_TkKVJLqWR1OmdL" >> .env
+          grep -q "^RAZORPAY_KEY_SECRET=" .env && sed -i 's|^RAZORPAY_KEY_SECRET=.*|RAZORPAY_KEY_SECRET=C9xubu4iHN8PaMF8Mcw11N8O|' .env || echo "RAZORPAY_KEY_SECRET=C9xubu4iHN8PaMF8Mcw11N8O" >> .env
+          grep -q "^PAYMENT_GATEWAY=" .env && sed -i 's|^PAYMENT_GATEWAY=.*|PAYMENT_GATEWAY=razorpay|' .env || echo "PAYMENT_GATEWAY=razorpay" >> .env
           sudo apt-get update && sudo apt-get install -y python3-pip python3-venv nginx certbot python3-certbot-nginx
           python3 -m venv .venv || true
           .venv/bin/pip install --upgrade pip
