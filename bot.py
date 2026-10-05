@@ -47,14 +47,11 @@ def get_chat_paywall_keyboard(user_id=None):
         pay_url = f"{base_url}/checkout/initiate?user_id={user_id}&item_type=chat_pass"
     else:
         pay_url = f"{base_url}/checkout"
-        
-    if base_url.startswith("https://"):
-        btn = InlineKeyboardButton("💳 Continue for ₹50", web_app=WebAppInfo(url=pay_url))
-    else:
-        btn = InlineKeyboardButton("💳 Continue for ₹50", url=pay_url)
 
     keyboard = [
-        [btn],
+        [
+            InlineKeyboardButton("💳 Continue for ₹50 — Open Payment Page", url=pay_url)
+        ],
         [
             InlineKeyboardButton("🔙 View Profile / Balance", callback_data="profile_back")
         ]
@@ -68,13 +65,10 @@ def get_image_paywall_keyboard(user_id=None):
     else:
         pay_url = f"{base_url}/checkout"
 
-    if base_url.startswith("https://"):
-        btn = InlineKeyboardButton("💳 Continue for ₹50", web_app=WebAppInfo(url=pay_url))
-    else:
-        btn = InlineKeyboardButton("💳 Continue for ₹50", url=pay_url)
-
     keyboard = [
-        [btn],
+        [
+            InlineKeyboardButton("💳 Continue for ₹50 — Open Payment Page", url=pay_url)
+        ],
         [
             InlineKeyboardButton("🔙 View Profile / Balance", callback_data="profile_back")
         ]
