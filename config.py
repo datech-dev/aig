@@ -10,11 +10,13 @@ VENICE_API_KEY = os.getenv("VENICE_API_KEY")
 VENICE_MODEL = os.getenv("VENICE_MODEL", "e2ee-qwen-2-5-7b-p")
 VENICE_IMAGE_MODEL = os.getenv("VENICE_IMAGE_MODEL", "lustify-v7")
 
-# Razorpay API Credentials and Webhook Secret
-RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID")
-RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET")
-RAZORPAY_WEBHOOK_SECRET = os.getenv("RAZORPAY_WEBHOOK_SECRET")
+# Instamojo API Credentials
+INSTAMOJO_API_KEY = os.getenv("INSTAMOJO_API_KEY", "")
+INSTAMOJO_AUTH_TOKEN = os.getenv("INSTAMOJO_AUTH_TOKEN", "")
+INSTAMOJO_SALT = os.getenv("INSTAMOJO_SALT", "")
+INSTAMOJO_ENDPOINT = os.getenv("INSTAMOJO_ENDPOINT", "https://www.instamojo.com/api/1.1/").rstrip("/") + "/"
 WEB_CHECKOUT_URL = os.getenv("WEB_CHECKOUT_URL", "http://157.66.191.104:8080")
+
 
 # Paywall Configuration Constants
 FREE_MESSAGE_LIMIT = 10

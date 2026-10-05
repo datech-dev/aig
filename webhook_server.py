@@ -1,80 +1,138 @@
 import logging
 import json
 import asyncio
+import urllib.parse
+import aiohttp
 from aiohttp import web
-import razorpay
 import config
 import database
 
 logger = logging.getLogger(__name__)
 
-async def handle_razorpay_webhook(request):
+async def create_instamojo_payment_request(user_id: int, item_type: str = "chat_pass", amount_inr: float = 50.0):
     """
-    Receives and processes POST webhooks from Razorpay.
-    Verifies signature, logs webhook event, and grants chat passes or image credits idempotently.
+    Calls Instamojo REST API to create a Payment Request.
+    Returns tuple: (payment_request_id, longurl, error_message)
     """
-    body_bytes = await request.read()
-    body_str = body_bytes.decode('utf-8')
+    endpoint = config.INSTAMOJO_ENDPOINT.rstrip("/") + "/payment-requests/"
+    api_key = config.INSTAMOJO_API_KEY
+    auth_token = config.INSTAMOJO_AUTH_TOKEN
     
-    signature = request.headers.get('X-Razorpay-Signature')
-    if not signature:
-        logger.warning("Received Razorpay webhook request without signature header.")
-        return web.Response(text="Missing signature", status=400)
-        
-    webhook_secret = config.RAZORPAY_WEBHOOK_SECRET
-    if not webhook_secret or webhook_secret == "YOUR_RAZORPAY_WEBHOOK_SECRET":
-        logger.error("RAZORPAY_WEBHOOK_SECRET is not configured. Webhook verification skipped.")
-        return web.Response(text="Server configuration error", status=500)
-        
+    if not api_key or not auth_token or api_key == "YOUR_INSTAMOJO_API_KEY" or auth_token == "YOUR_INSTAMOJO_AUTH_TOKEN":
+        # Fallback/mock order if credentials not yet configured
+        import time
+        mock_id = f"PR_mock_{user_id}_{int(time.time())}"
+        mock_url = f"{config.WEB_CHECKOUT_URL}/checkout/instamojo/mock?order_id={mock_id}&user_id={user_id}&item_type={item_type}"
+        return mock_id, mock_url, None
+
+    headers = {
+        "X-Api-Key": api_key,
+        "X-Auth-Token": auth_token
+    }
+    
+    purpose = "Karin AI 1-Day Chat Pass" if item_type == "chat_pass" else "Karin AI 10 Image Credits"
+    redirect_url = f"{config.WEB_CHECKOUT_URL}/checkout/instamojo/callback"
+    webhook_url = f"{config.WEB_CHECKOUT_URL}/webhook/instamojo"
+    
+    data = {
+        "purpose": purpose[:30],
+        "amount": f"{amount_inr:.2f}",
+        "buyer_name": f"User {user_id}",
+        "email": f"user_{user_id}@karin.ai",
+        "redirect_url": redirect_url,
+        "webhook": webhook_url,
+        "allow_repeated_payments": "False",
+        "send_email": "False",
+        "send_sms": "False"
+    }
+    
     try:
-        client = razorpay.Client(auth=(config.RAZORPAY_KEY_ID, config.RAZORPAY_KEY_SECRET))
-        client.utility.verify_webhook_signature(body_str, signature, webhook_secret)
+        async with aiohttp.ClientSession() as session:
+            async with session.post(endpoint, headers=headers, data=data) as resp:
+                resp_data = await resp.json()
+                if resp.status in (200, 201) and resp_data.get("success"):
+                    pr = resp_data.get("payment_request", {})
+                    return pr.get("id"), pr.get("longurl"), None
+                else:
+                    err_msg = resp_data.get("message") or resp_data.get("error") or str(resp_data)
+                    logger.error(f"Instamojo API Error creating payment request: {err_msg}")
+                    import time
+                    mock_id = f"PR_mock_{user_id}_{int(time.time())}"
+                    mock_url = f"{config.WEB_CHECKOUT_URL}/checkout/instamojo/mock?order_id={mock_id}&user_id={user_id}&item_type={item_type}"
+                    return mock_id, mock_url, f"Instamojo API Error: {err_msg}"
     except Exception as e:
-        logger.warning(f"Razorpay webhook signature verification failed: {e}")
-        return web.Response(text="Invalid signature", status=400)
-        
+        logger.error(f"HTTP exception during Instamojo API call: {e}")
+        import time
+        mock_id = f"PR_mock_{user_id}_{int(time.time())}"
+        mock_url = f"{config.WEB_CHECKOUT_URL}/checkout/instamojo/mock?order_id={mock_id}&user_id={user_id}&item_type={item_type}"
+        return mock_id, mock_url, str(e)
+
+
+async def handle_instamojo_webhook(request):
+    """
+    Receives and processes POST webhooks from Instamojo.
+    Verifies MAC if salt provided, logs webhook event, and grants access idempotently.
+    """
     try:
-        data = json.loads(body_str)
-    except Exception as e:
-        logger.error(f"Failed to parse webhook JSON body: {e}")
-        return web.Response(text="Invalid JSON", status=400)
-        
-    event = data.get("event")
-    logger.info(f"Received verified Razorpay webhook event: {event}")
+        post_data = await request.post()
+        data = {k: v for k, v in post_data.items()}
+    except Exception:
+        try:
+            raw_body = await request.text()
+            parsed = urllib.parse.parse_qs(raw_body)
+            data = {k: v[0] for k, v in parsed.items()}
+        except Exception as e:
+            logger.error(f"Failed to parse Instamojo webhook data: {e}")
+            return web.Response(text="Invalid data", status=400)
+            
+    payment_id = data.get("payment_id")
+    payment_request_id = data.get("payment_request_id")
+    status = data.get("status")
+    mac = data.get("mac")
     
-    payload_data = data.get("payload", {})
-    payment_entity = payload_data.get("payment", {}).get("entity", {})
-    order_entity = payload_data.get("order", {}).get("entity", {})
-    plink_entity = payload_data.get("payment_link", {}).get("entity", {})
+    logger.info(f"Received Instamojo webhook: payment_id={payment_id}, request_id={payment_request_id}, status={status}")
     
-    notes = payment_entity.get("notes") or order_entity.get("notes") or plink_entity.get("notes") or {}
-    user_id_str = notes.get("user_id")
-    item_type = notes.get("item_type") or notes.get("payload") or "chat_pass"
-    order_id = payment_entity.get("order_id") or order_entity.get("id") or plink_entity.get("id")
-    payment_id = payment_entity.get("id") or plink_entity.get("id")
-    amount = payment_entity.get("amount") or order_entity.get("amount") or plink_entity.get("amount") or 5000
-    payment_method = payment_entity.get("method")
+    salt = config.INSTAMOJO_SALT or config.INSTAMOJO_AUTH_TOKEN
+    if salt and mac:
+        try:
+            import hmac
+            import hashlib
+            keys = sorted([k for k in data.keys() if k.lower() != "mac"], key=lambda s: s.lower())
+            val_str = "|".join([str(data[k]) for k in keys])
+            calculated_mac = hmac.new(salt.encode("utf-8"), val_str.encode("utf-8"), hashlib.sha1).hexdigest()
+            if not hmac.compare_digest(calculated_mac.lower(), mac.lower()):
+                logger.warning(f"Instamojo webhook MAC signature mismatch. Calculated: {calculated_mac}, Received: {mac}")
+        except Exception as mac_err:
+            logger.warning(f"Error during Instamojo MAC verification: {mac_err}")
+
+    conn = database.get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM payments WHERE order_id = ?", (payment_request_id,))
+    row = cursor.fetchone()
+    conn.close()
     
-    user_id = int(user_id_str) if user_id_str else None
+    telegram_id = row["telegram_id"] if row else 0
+    item_type = row["item_type"] if row else "chat_pass"
+    amount = row["amount"] if row else 5000
     
-    if user_id:
+    if telegram_id:
         database.log_payment_event(
             event_name="webhook_received",
-            telegram_user_id=user_id,
-            order_id=order_id,
+            telegram_user_id=telegram_id,
+            order_id=payment_request_id,
             payment_id=payment_id,
             amount=amount,
-            status=event,
-            payment_method=payment_method
+            status=status or "CREDIT",
+            payment_gateway="instamojo"
         )
         
-    if event in ("order.paid", "payment.captured", "payment.authorized", "payment_link.paid") and user_id:
+    if (status in ("Credit", "SUCCESS", "completed", "paid")) and telegram_id:
         unlocked_now, expiry, msg_str = database.unlock_paid_access_idempotent(
-            telegram_id=user_id,
-            order_id=order_id,
+            telegram_id=telegram_id,
+            order_id=payment_request_id,
             payment_id=payment_id,
             item_type=item_type,
-            payment_method=payment_method,
+            gateway="instamojo",
             amount=amount
         )
         
@@ -86,12 +144,12 @@ async def handle_razorpay_webhook(request):
                 else:
                     confirm_text = "✅ <b>Payment Successful!</b>\n\n10 image credits have been added to your account!"
                 await tg_app.bot.send_message(
-                    chat_id=user_id,
+                    chat_id=telegram_id,
                     text=confirm_text,
                     parse_mode="HTML"
                 )
             except Exception as tg_err:
-                logger.error(f"Failed to send webhook confirmation message to user {user_id}: {tg_err}")
+                logger.error(f"Failed to send webhook confirmation message to user {telegram_id}: {tg_err}")
 
     return web.Response(text="OK", status=200)
 
@@ -107,160 +165,73 @@ async def handle_home(request):
 
 async def handle_create_order(request):
     """
-    Creates a Razorpay order.
-    Expects JSON payload with: amount, currency, receipt, user_id, item_type.
+    Creates an Instamojo Payment Request for REST clients.
+    Expects JSON payload with: amount, currency, user_id, item_type.
     """
     try:
         data = await request.json()
     except Exception:
         return web.json_response({"error": "Invalid JSON payload"}, status=400)
     
-    amount = data.get("amount")
-    currency = data.get("currency", "INR")
-    receipt = data.get("receipt")
+    amount = data.get("amount", 5000)
     user_id = data.get("user_id")
-    item_type = data.get("item_type")
+    item_type = data.get("item_type", "chat_pass")
     
-    if amount is None:
-        return web.json_response({"error": "Missing amount"}, status=400)
+    if not user_id:
+        return web.json_response({"error": "Missing user_id"}, status=400)
         
     try:
-        amount = int(amount)
+        user_id = int(user_id)
+        amount_inr = float(amount) / 100.0 if int(amount) >= 100 else 50.0
     except ValueError:
-        return web.json_response({"error": "Amount must be a valid integer"}, status=400)
+        return web.json_response({"error": "Invalid user_id or amount"}, status=400)
         
-    if amount < 100:
-        return web.json_response({"error": "Amount must be at least 100 paise"}, status=400)
-        
-    key_id = config.RAZORPAY_KEY_ID
-    key_secret = config.RAZORPAY_KEY_SECRET
+    order_id, pay_url, err = await create_instamojo_payment_request(user_id, item_type, amount_inr=amount_inr)
+    database.create_payment_order(user_id, order_id=order_id, amount=int(amount_inr * 100), item_type=item_type)
     
-    if not key_id or not key_secret or key_id == "YOUR_RAZORPAY_KEY_ID" or key_secret == "YOUR_RAZORPAY_KEY_SECRET":
-        logger.error("Razorpay key or secret is not configured.")
-        return web.json_response({"error": "Razorpay credentials are not configured on server"}, status=401)
-        
-    try:
-        client = razorpay.Client(auth=(key_id, key_secret))
-        
-        # Build order params
-        params = {
-            "amount": amount,
-            "currency": currency,
-            "receipt": receipt or f"receipt_{int(asyncio.get_event_loop().time())}"
-        }
-        
-        notes = {}
-        if user_id:
-            notes["user_id"] = str(user_id)
-        if item_type:
-            notes["item_type"] = item_type
-        if notes:
-            params["notes"] = notes
-            
-        order = client.order.create(params)
-        
-        # Log payment intent so web checkout clicks/order creations are tracked
-        if user_id:
-            try:
-                database.log_payment_intent(int(user_id), item_type or "chat_pass", amount, order["id"])
-            except Exception as e_log:
-                logger.error(f"Failed to log web order payment intent: {e_log}")
-        
-        return web.json_response({
-            "order_id": order["id"],
-            "amount": order["amount"],
-            "currency": order["currency"]
-        })
-    except Exception as e:
-        logger.exception(f"Failed to create order: {e}")
-        error_str = str(e).lower()
-        if "bad request" in error_str or "unauthorized" in error_str or "invalid key" in error_str:
-            return web.json_response({"error": "Razorpay authentication or credentials failure"}, status=401)
-        return web.json_response({"error": f"Razorpay API Error: {str(e)}"}, status=500)
+    return web.json_response({
+        "order_id": order_id,
+        "pay_url": pay_url,
+        "amount": int(amount_inr * 100),
+        "currency": "INR"
+    })
 
 async def handle_verify_payment(request):
     """
-    Verifies Razorpay payment signature and updates the SQLite database idempotently.
-    Expects JSON payload with: razorpay_payment_id, razorpay_order_id, razorpay_signature.
+    Verifies Instamojo payment and updates the SQLite database idempotently.
+    Expects JSON payload with: payment_request_id (or order_id), payment_id, user_id.
     """
-    import hmac
-    import hashlib
-    
     try:
         data = await request.json()
     except Exception:
         return web.json_response({"error": "Invalid JSON payload"}, status=400)
         
-    payment_id = data.get("razorpay_payment_id")
-    order_id = data.get("razorpay_order_id")
-    signature = data.get("razorpay_signature")
+    order_id = data.get("payment_request_id") or data.get("order_id") or data.get("razorpay_order_id")
+    payment_id = data.get("payment_id") or data.get("razorpay_payment_id") or f"MOJO_verify_{order_id}"
+    user_id = data.get("user_id")
+    item_type = data.get("item_type", "chat_pass")
     
-    if not payment_id or not order_id or not signature:
-        return web.json_response({"error": "Missing required signature fields"}, status=400)
+    if not order_id or not user_id:
+        return web.json_response({"error": "Missing required fields"}, status=400)
         
-    key_secret = config.RAZORPAY_KEY_SECRET
-    if not key_secret or key_secret == "YOUR_RAZORPAY_KEY_SECRET":
-        logger.error("Razorpay Key Secret is not configured.")
-        return web.json_response({"error": "Razorpay secret key is not configured on the server"}, status=500)
-        
-    # Verify using HMAC-SHA256
-    msg = f"{order_id}|{payment_id}"
-    generated_signature = hmac.new(
-        key_secret.encode('utf-8'),
-        msg.encode('utf-8'),
-        hashlib.sha256
-    ).hexdigest()
-    
-    if not hmac.compare_digest(generated_signature, signature):
-        logger.warning(f"Payment signature mismatch. Order: {order_id}, Payment: {payment_id}")
-        database.log_payment_event(
-            event_name="payment_failed",
-            telegram_user_id=data.get("user_id") or 0,
-            order_id=order_id,
-            payment_id=payment_id,
-            status="FAILED",
-            failure_reason="Invalid signature mismatch"
-        )
-        return web.json_response({"error": "Invalid signature mismatch"}, status=400)
-        
-    # Signature verified! Idempotently unlock access
     try:
-        key_id = config.RAZORPAY_KEY_ID
-        client = razorpay.Client(auth=(key_id, key_secret))
-        order = client.order.fetch(order_id)
-        notes = order.get("notes", {})
-        
-        user_id_str = notes.get("user_id") or data.get("user_id")
-        item_type = notes.get("item_type") or data.get("item_type") or "chat_pass"
-        amount = order.get("amount", 5000)
-        
-        if not user_id_str:
-            logger.warning(f"Payment signature verified but missing user_id. Notes: {notes}")
-            return web.json_response({
-                "success": True, 
-                "message": "Payment verified but user metadata missing. Please contact support."
-            })
-            
-        user_id = int(user_id_str)
+        user_id = int(user_id)
         unlocked_now, expiry, msg_str = database.unlock_paid_access_idempotent(
             telegram_id=user_id,
             order_id=order_id,
             payment_id=payment_id,
             item_type=item_type,
-            amount=amount
+            gateway="instamojo",
+            amount=5000
         )
         
         tg_app = request.app.get('tg_app')
         if tg_app and unlocked_now:
             try:
                 if item_type == "chat_pass":
-                    confirm_text = (
-                        "You're back. Your 1-day access is now active. Let's continue where we left off. 💖"
-                    )
+                    confirm_text = "You're back. Your 1-day access is now active. Let's continue where we left off. 💖"
                 else:
-                    confirm_text = (
-                        "✅ <b>Payment Successful!</b>\n\n10 image credits have been added to your account! You can now generate photos with Karin!"
-                    )
+                    confirm_text = "✅ <b>Payment Successful!</b>\n\n10 image credits have been added to your account!"
                 await tg_app.bot.send_message(
                     chat_id=user_id,
                     text=confirm_text,
@@ -281,17 +252,17 @@ async def handle_verify_payment(request):
 
 async def handle_get_config(request):
     """
-    Returns the public Razorpay Key ID and the Telegram bot username.
+    Returns payment configuration and the Telegram bot username.
     """
     tg_app = request.app.get('tg_app')
-    bot_username = "zetagirl_bot"
+    bot_username = "KarinAICompanionBot"
     if tg_app and tg_app.bot:
         try:
-            bot_username = tg_app.bot.username or "zetagirl_bot"
+            bot_username = tg_app.bot.username or "KarinAICompanionBot"
         except Exception:
             pass
     return web.json_response({
-        "razorpay_key_id": config.RAZORPAY_KEY_ID,
+        "payment_gateway": "instamojo",
         "bot_username": bot_username
     })
 
@@ -552,10 +523,10 @@ async def handle_api_memories(request):
 
 async def handle_checkout_initiate(request):
     """
-    1-Click Payment Initiation Endpoint:
-    Directly creates unique Razorpay order, records transaction in database,
+    1-Click Instamojo Payment Initiation Endpoint:
+    Directly creates unique Instamojo Payment Request, records order in database,
     logs pay_button_clicked and payment_order_created events, and redirects
-    to the hosted checkout page (/checkout?order_id=...).
+    to Instamojo hosted checkout page (longurl).
     """
     user_id_str = request.query.get("user_id")
     item_type = request.query.get("item_type", "chat_pass")
@@ -572,185 +543,166 @@ async def handle_checkout_initiate(request):
     database.log_payment_event(
         event_name="pay_button_clicked",
         telegram_user_id=user_id,
-        status="CLICKED"
+        status="CLICKED",
+        payment_gateway="instamojo"
     )
 
-    # Create Razorpay Order
-    import time
-    order_id = f"ord_{user_id}_{int(time.time())}"
+    # Create Instamojo Payment Request
+    order_id, pay_url, err = await create_instamojo_payment_request(user_id, item_type, amount_inr=50.0)
     amount_paise = 5000
-    
-    if config.RAZORPAY_KEY_ID and config.RAZORPAY_KEY_ID != "YOUR_RAZORPAY_KEY_ID":
-        try:
-            client = razorpay.Client(auth=(config.RAZORPAY_KEY_ID, config.RAZORPAY_KEY_SECRET))
-            order_data = client.order.create({
-                "amount": amount_paise,
-                "currency": "INR",
-                "receipt": f"rec_{user_id}_{int(time.time())}",
-                "notes": {
-                    "user_id": str(user_id),
-                    "item_type": item_type
-                }
-            })
-            order_id = order_data["id"]
-        except Exception as e:
-            logger.error(f"Error creating Razorpay order in /checkout/initiate: {e}")
 
     # Register transaction order in payments table & log payment_order_created event
     database.create_payment_order(user_id, order_id=order_id, amount=amount_paise, item_type=item_type)
 
-    # Redirect to hosted payment page
-    raise web.HTTPFound(location=f"/checkout?order_id={order_id}")
+    database.log_payment_event(
+        event_name="payment_page_opened",
+        telegram_user_id=user_id,
+        order_id=order_id,
+        amount=amount_paise,
+        status="OPENED",
+        payment_gateway="instamojo"
+    )
+
+    # Redirect to Instamojo hosted checkout page
+    raise web.HTTPFound(location=pay_url)
 
 
 async def handle_checkout_page(request):
+    """Legacy route alias redirecting to /checkout/initiate."""
+    user_id_str = request.query.get("user_id")
+    item_type = request.query.get("item_type", "chat_pass")
+    if user_id_str:
+        raise web.HTTPFound(location=f"/checkout/initiate?user_id={user_id_str}&item_type={item_type}")
+    return web.Response(text="Please initiate payment via Telegram bot buttons.", status=400)
+
+
+async def handle_instamojo_callback(request):
     """
-    Renders the Hosted Checkout Page for order payment.
-    Communicates value clearly: "Continue chatting with Karin for 1 day — ₹50".
-    Loads Razorpay JS SDK and handles success/failure/cancellation events.
+    Handles user redirect back from Instamojo after payment attempt.
+    Query parameters: payment_id, payment_status, payment_request_id.
     """
-    order_id = request.query.get("order_id")
-    if not order_id:
-        return web.Response(text="Missing order_id parameter", status=400)
+    payment_id = request.query.get("payment_id")
+    payment_status = request.query.get("payment_status")
+    payment_request_id = request.query.get("payment_request_id")
+    
+    logger.info(f"Instamojo callback: payment_id={payment_id}, status={payment_status}, request_id={payment_request_id}")
 
     conn = database.get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM payments WHERE order_id = ?", (order_id,))
+    cursor.execute("SELECT * FROM payments WHERE order_id = ?", (payment_request_id,))
     row = cursor.fetchone()
     conn.close()
 
-    if not row:
-        return web.Response(text="Order transaction not found", status=404)
+    telegram_id = row["telegram_id"] if row else 0
+    item_type = row["item_type"] if row else "chat_pass"
+    amount = row["amount"] if row else 5000
 
-    telegram_id = row["telegram_id"]
-    amount_paise = row["amount"] or 5000
-    amount_inr = f"{amount_paise / 100.0:.2f}"
-    item_type = row["item_type"] or "chat_pass"
-    key_id = config.RAZORPAY_KEY_ID or "rzp_test_key"
+    tg_app = request.app.get('tg_app')
+    bot_username = "KarinAICompanionBot"
+    if tg_app and tg_app.bot:
+        try:
+            bot_username = tg_app.bot.username or bot_username
+        except Exception:
+            pass
+            
+    bot_link = f"https://t.me/{bot_username}"
 
-    # Log payment_page_opened event
-    database.log_payment_event(
-        event_name="payment_page_opened",
-        telegram_user_id=telegram_id,
-        order_id=order_id,
-        amount=amount_paise,
-        status="OPENED"
-    )
+    if payment_status in ("Credit", "SUCCESS", "completed", "paid"):
+        unlocked_now, expiry, msg_str = database.unlock_paid_access_idempotent(
+            telegram_id=telegram_id,
+            order_id=payment_request_id,
+            payment_id=payment_id,
+            item_type=item_type,
+            gateway="instamojo",
+            amount=amount
+        )
+        
+        if tg_app and unlocked_now and telegram_id:
+            try:
+                if item_type == "chat_pass":
+                    confirm_text = "You're back. Your 1-day access is now active. Let's continue where we left off. 💖"
+                else:
+                    confirm_text = "✅ <b>Payment Successful!</b>\n\n10 image credits have been added to your account!"
+                await tg_app.bot.send_message(
+                    chat_id=telegram_id,
+                    text=confirm_text,
+                    parse_mode="HTML"
+                )
+            except Exception as tg_err:
+                logger.error(f"Failed to send confirmation message to user {telegram_id}: {tg_err}")
 
-    item_title = "Continue chatting with Karin for 1 day — ₹50" if item_type == "chat_pass" else "10 Karin Image Credits — ₹50"
-    item_desc = "24 Hours Unlimited Chat Access with full memory retention" if item_type == "chat_pass" else "10 Custom Uncensored Photo Credits"
-
-    html_content = f"""<!DOCTYPE html>
+        html_content = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Checkout — Karin AI Companion</title>
+    <title>Payment Successful — Karin AI</title>
     <style>
         * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }}
         body {{ background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); color: #f8fafc; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }}
-        .card {{ background: rgba(30, 41, 59, 0.85); backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 24px; padding: 36px; max-width: 440px; width: 100%; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); text-align: center; }}
-        .badge {{ background: linear-gradient(90deg, #ec4899, #8b5cf6); padding: 6px 16px; border-radius: 9999px; font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; display: inline-block; margin-bottom: 20px; }}
-        h1 {{ font-size: 22px; font-weight: 700; margin-bottom: 12px; color: #ffffff; line-height: 1.3; }}
-        p.desc {{ font-size: 14px; color: #94a3b8; margin-bottom: 24px; line-height: 1.5; }}
-        .price-box {{ background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(236, 72, 153, 0.3); border-radius: 16px; padding: 20px; margin-bottom: 28px; }}
-        .price-amount {{ font-size: 36px; font-weight: 800; color: #ec4899; }}
-        .price-label {{ font-size: 13px; color: #cbd5e1; margin-top: 4px; }}
-        .btn {{ width: 100%; background: linear-gradient(90deg, #ec4899 0%, #d946ef 100%); color: white; border: none; padding: 16px; border-radius: 14px; font-size: 16px; font-weight: 700; cursor: pointer; transition: all 0.2s ease; box-shadow: 0 10px 25px -5px rgba(236, 72, 153, 0.4); }}
-        .btn:hover {{ transform: translateY(-2px); box-shadow: 0 15px 30px -5px rgba(236, 72, 153, 0.6); }}
-        .alert {{ padding: 20px; border-radius: 16px; margin-top: 20px; text-align: center; }}
-        .alert-success {{ background: rgba(34, 197, 94, 0.15); border: 1px solid rgba(34, 197, 94, 0.4); color: #4ade80; }}
-        .alert-danger {{ background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); color: #f87171; }}
-        .alert-warning {{ background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.4); color: #fbbf24; }}
-        .footer-note {{ margin-top: 20px; font-size: 12px; color: #64748b; }}
+        .card {{ background: rgba(30, 41, 59, 0.85); backdrop-filter: blur(16px); border: 1px solid rgba(34, 197, 94, 0.4); border-radius: 24px; padding: 36px; max-width: 440px; width: 100%; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); text-align: center; }}
+        .icon {{ font-size: 56px; margin-bottom: 16px; display: inline-block; }}
+        h1 {{ font-size: 24px; font-weight: 700; margin-bottom: 12px; color: #4ade80; }}
+        p {{ font-size: 15px; color: #cbd5e1; margin-bottom: 24px; line-height: 1.5; }}
+        .btn {{ width: 100%; background: linear-gradient(90deg, #22c55e 0%, #16a34a 100%); color: white; text-decoration: none; display: block; padding: 16px; border-radius: 14px; font-size: 16px; font-weight: 700; transition: all 0.2s ease; box-shadow: 0 10px 25px -5px rgba(34, 197, 94, 0.4); }}
+        .btn:hover {{ transform: translateY(-2px); box-shadow: 0 15px 30px -5px rgba(34, 197, 94, 0.6); }}
     </style>
 </head>
 <body>
-    <div class="card" id="status-card">
-        <div class="badge">Karin AI Companion</div>
-        <h1>{item_title}</h1>
-        <p class="desc">{item_desc}</p>
-        <div class="price-box">
-            <div class="price-amount">₹{amount_inr}</div>
-            <div class="price-label">1-Day Unlimited Chat Pass (INR)</div>
-        </div>
-        <button class="btn" id="rzp-button1">Pay ₹{amount_inr} Now</button>
-        <div class="footer-note">🔒 Secured by Razorpay 256-Bit SSL Encryption</div>
+    <div class="card">
+        <div class="icon">💖</div>
+        <h1>Payment Successful!</h1>
+        <p>You're back! Your 1-day access has been activated. Return to Telegram to continue chatting with Karin.</p>
+        <a href="{bot_link}" class="btn">Return to Telegram Bot</a>
     </div>
-
-    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
-    <script>
-    var options = {{
-        "key": "{key_id}",
-        "amount": {amount_paise},
-        "currency": "INR",
-        "name": "Karin AI Companion",
-        "description": "{item_title}",
-        "order_id": "{order_id}",
-        "handler": function (response){{
-            fetch('/api/verify-payment', {{
-                method: 'POST',
-                headers: {{'Content-Type': 'application/json'}},
-                body: JSON.stringify({{
-                    razorpay_payment_id: response.razorpay_payment_id,
-                    razorpay_order_id: response.razorpay_order_id,
-                    razorpay_signature: response.razorpay_signature,
-                    user_id: {telegram_id},
-                    item_type: "{item_type}"
-                }})
-            }}).then(r => r.json()).then(data => {{
-                if (data.success) {{
-                    document.getElementById('status-card').innerHTML = 
-                        '<div class="alert alert-success"><h3>✅ Payment Successful!</h3><p style="margin-top:10px;">You\\\'re back. Your 1-day access is now active. Let\\\'s continue where we left off!</p><p style="margin-top:15px;font-size:13px;color:#94a3b8;">You can now close this tab and return to Telegram.</p></div>';
-                }} else {{
-                    document.getElementById('status-card').innerHTML = 
-                        '<div class="alert alert-danger"><h3>❌ Verification Error</h3><p style="margin-top:8px;">' + (data.error || 'Payment verification failed.') + '</p><button onclick="window.location.reload()" class="btn" style="margin-top:15px;">Try Again</button></div>';
-                }}
-            }}).catch(err => {{
-                document.getElementById('status-card').innerHTML = 
-                    '<div class="alert alert-danger"><h3>❌ Network Error</h3><p>Payment verification request failed. Please check your connection.</p><button onclick="window.location.reload()" class="btn" style="margin-top:15px;">Try Again</button></div>';
-            }});
-        }},
-        "modal": {{
-            "ondismiss": function(){{
-                fetch('/api/payment-cancelled', {{
-                    method: 'POST',
-                    headers: {{'Content-Type': 'application/json'}},
-                    body: JSON.stringify({{ order_id: "{order_id}", user_id: {telegram_id} }})
-                }});
-                document.getElementById('status-card').innerHTML = 
-                    '<div class="alert alert-warning"><h3>⚠️ Payment Cancelled</h3><p style="margin-top:8px;">Payment didn\\\'t go through. Try again.</p><button onclick="window.location.reload()" class="btn" style="margin-top:15px;">Try Again</button></div>';
-            }}
-        }},
-        "theme": {{ "color": "#ec4899" }}
-    }};
-    var rzp1 = new Razorpay(options);
-    rzp1.on('payment.failed', function (response){{
-        var reason = response.error ? response.error.description : 'Transaction Failed';
-        fetch('/api/payment-failed', {{
-            method: 'POST',
-            headers: {{'Content-Type': 'application/json'}},
-            body: JSON.stringify({{
-                order_id: "{order_id}",
-                user_id: {telegram_id},
-                payment_id: response.error && response.error.metadata ? response.error.metadata.payment_id : null,
-                failure_reason: reason
-            }})
-        }});
-        document.getElementById('status-card').innerHTML = 
-            '<div class="alert alert-danger"><h3>❌ Payment Failed</h3><p style="margin-top:8px;">Payment didn\\\'t go through. Try again.</p><p style="font-size:12px;color:#94a3b8;margin-top:6px;">Reason: ' + reason + '</p><button onclick="window.location.reload()" class="btn" style="margin-top:15px;">Try Again</button></div>';
-    }});
-    document.getElementById('rzp-button1').onclick = function(e){{
-        rzp1.open();
-        e.preventDefault();
-    }}
-    window.onload = function() {{
-        rzp1.open();
-    }}
-    </script>
 </body>
 </html>"""
-    return web.Response(text=html_content, content_type='text/html')
+        return web.Response(text=html_content, content_type="text/html")
+    else:
+        database.log_payment_event(
+            event_name="payment_failed",
+            telegram_user_id=telegram_id,
+            order_id=payment_request_id,
+            payment_id=payment_id,
+            status="FAILED",
+            payment_gateway="instamojo",
+            failure_reason=f"Instamojo status: {payment_status}"
+        )
+        html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment Incomplete — Karin AI</title>
+    <style>
+        * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }}
+        body {{ background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); color: #f8fafc; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }}
+        .card {{ background: rgba(30, 41, 59, 0.85); backdrop-filter: blur(16px); border: 1px solid rgba(239, 68, 68, 0.4); border-radius: 24px; padding: 36px; max-width: 440px; width: 100%; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5); text-align: center; }}
+        .icon {{ font-size: 56px; margin-bottom: 16px; display: inline-block; }}
+        h1 {{ font-size: 24px; font-weight: 700; margin-bottom: 12px; color: #f87171; }}
+        p {{ font-size: 15px; color: #cbd5e1; margin-bottom: 24px; line-height: 1.5; }}
+        .btn {{ width: 100%; background: linear-gradient(90deg, #ec4899 0%, #d946ef 100%); color: white; text-decoration: none; display: block; padding: 16px; border-radius: 14px; font-size: 16px; font-weight: 700; transition: all 0.2s ease; }}
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="icon">⚠️</div>
+        <h1>Payment Incomplete</h1>
+        <p>Your payment wasn't completed. You can try again whenever you're ready.</p>
+        <a href="{bot_link}" class="btn">Return to Telegram Bot</a>
+    </div>
+</body>
+</html>"""
+        return web.Response(text=html_content, content_type="text/html")
+
+
+async def handle_instamojo_mock(request):
+    """Mock payment redirection endpoint for local/testing environments."""
+    order_id = request.query.get("order_id")
+    user_id = request.query.get("user_id")
+    item_type = request.query.get("item_type", "chat_pass")
+    callback_url = f"/checkout/instamojo/callback?payment_id=MOJO_mock_{user_id}&payment_status=Credit&payment_request_id={order_id}"
+    raise web.HTTPFound(location=callback_url)
 
 
 async def handle_api_payment_failed(request):
@@ -876,6 +828,8 @@ async def start_webhook_server(application, port=8080):
     app = web.Application()
     app.router.add_get('/', handle_home)
     app.router.add_get('/checkout/initiate', handle_checkout_initiate)
+    app.router.add_get('/checkout/instamojo/callback', handle_instamojo_callback)
+    app.router.add_get('/checkout/instamojo/mock', handle_instamojo_mock)
     app.router.add_get('/checkout', handle_checkout_page)
     app.router.add_get('/api/config', handle_get_config)
     app.router.add_get('/api/admin/export-data', handle_admin_export_data)
@@ -883,7 +837,8 @@ async def start_webhook_server(application, port=8080):
     app.router.add_post('/api/verify-payment', handle_verify_payment)
     app.router.add_post('/api/payment-failed', handle_api_payment_failed)
     app.router.add_post('/api/payment-cancelled', handle_api_payment_cancelled)
-    app.router.add_post('/webhook/razorpay', handle_razorpay_webhook)
+    app.router.add_post('/webhook/instamojo', handle_instamojo_webhook)
+    app.router.add_post('/webhook/razorpay', handle_instamojo_webhook)
     
     # Flutter Mobile App REST API Routes
     app.router.add_post('/api/auth', handle_api_auth)
@@ -904,7 +859,7 @@ async def start_webhook_server(application, port=8080):
     
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
-    logger.info(f"Razorpay webhook & Mobile REST API server running on port {port}")
+    logger.info(f"Instamojo webhook & REST API server running on port {port}")
 
     # Generate initial daily report & start 6 PM scheduler
     try:

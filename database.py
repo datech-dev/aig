@@ -86,7 +86,7 @@ def init_db():
             currency TEXT DEFAULT 'INR',
             item_type TEXT DEFAULT 'chat_pass',
             status TEXT DEFAULT 'PENDING',
-            payment_gateway TEXT DEFAULT 'Razorpay',
+            payment_gateway TEXT DEFAULT 'instamojo',
             payment_method TEXT DEFAULT NULL,
             failure_reason TEXT DEFAULT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -110,7 +110,7 @@ def init_db():
             amount INTEGER DEFAULT 5000,
             currency TEXT DEFAULT 'INR',
             status TEXT,
-            payment_gateway TEXT DEFAULT 'Razorpay',
+            payment_gateway TEXT DEFAULT 'instamojo',
             payment_method TEXT,
             failure_reason TEXT,
             access_unlocked INTEGER DEFAULT 0,
@@ -150,7 +150,7 @@ def init_db():
         ("user_id", "INTEGER DEFAULT NULL"),
         ("currency", "TEXT DEFAULT 'INR'"),
         ("status", "TEXT DEFAULT 'PENDING'"),
-        ("payment_gateway", "TEXT DEFAULT 'Razorpay'"),
+        ("payment_gateway", "TEXT DEFAULT 'instamojo'"),
         ("payment_method", "TEXT DEFAULT NULL"),
         ("failure_reason", "TEXT DEFAULT NULL"),
         ("updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
@@ -836,7 +836,7 @@ def is_payment_processed(order_id=None, payment_id=None):
     return False
 
 
-def unlock_paid_access_idempotent(telegram_id, order_id, payment_id, item_type="chat_pass", payment_method=None, gateway="Razorpay", amount=5000, currency="INR"):
+def unlock_paid_access_idempotent(telegram_id, order_id, payment_id, item_type="chat_pass", payment_method=None, gateway="instamojo", amount=5000, currency="INR"):
     """
     Idempotently verifies payment success and unlocks 1-day access or image credits.
     Returns tuple: (unlocked_now: bool, expiry_datetime_or_None, message: str)
@@ -986,7 +986,7 @@ def generate_daily_payment_event_report(date_str=None):
                     r["payment_id"] or "",
                     r["amount"],
                     r["currency"] or "INR",
-                    r["payment_gateway"] or "Razorpay",
+                    r["payment_gateway"] or "instamojo",
                     r["payment_method"] or "",
                     r["status"] or "",
                     r["failure_reason"] or "",
