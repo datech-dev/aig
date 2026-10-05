@@ -50,7 +50,10 @@ def get_chat_paywall_keyboard(user_id=None):
 
     keyboard = [
         [
-            InlineKeyboardButton("💳 Continue for ₹50 — Pay inside Telegram", web_app=WebAppInfo(url=pay_url))
+            InlineKeyboardButton("💳 Pay ₹50 inside Telegram", web_app=WebAppInfo(url=pay_url))
+        ],
+        [
+            InlineKeyboardButton("🌐 Open in Browser (Direct UPI / GPay)", url=pay_url)
         ],
         [
             InlineKeyboardButton("🔙 View Profile / Balance", callback_data="profile_back")
@@ -67,7 +70,10 @@ def get_image_paywall_keyboard(user_id=None):
 
     keyboard = [
         [
-            InlineKeyboardButton("💳 Continue for ₹50 — Pay inside Telegram", web_app=WebAppInfo(url=pay_url))
+            InlineKeyboardButton("💳 Pay ₹50 inside Telegram", web_app=WebAppInfo(url=pay_url))
+        ],
+        [
+            InlineKeyboardButton("🌐 Open in Browser (Direct UPI / GPay)", url=pay_url)
         ],
         [
             InlineKeyboardButton("🔙 View Profile / Balance", callback_data="profile_back")

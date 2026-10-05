@@ -162,6 +162,19 @@ def init_db():
         except sqlite3.OperationalError:
             pass
 
+    # Migrations for payment_intents table columns
+    for col_def in [
+        ("item_type", "TEXT DEFAULT 'chat_pass'"),
+        ("amount", "INTEGER DEFAULT 5000"),
+        ("payment_link_id", "TEXT DEFAULT NULL"),
+        ("status", "TEXT DEFAULT 'initiated'"),
+        ("updated_at", "TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+    ]:
+        try:
+            cursor.execute(f"ALTER TABLE payment_intents ADD COLUMN {col_def[0]} {col_def[1]}")
+        except sqlite3.OperationalError:
+            pass
+
     # Run migration to add seed column to user_settings if not exists
     try:
         cursor.execute("ALTER TABLE user_settings ADD COLUMN seed INTEGER DEFAULT NULL")
@@ -619,18 +632,32 @@ def mark_payment_intent_completed(telegram_id, payment_link_id=None, item_type=N
     cursor = conn.cursor()
     try:
         now_str = datetime.utcnow().isoformat()
-        if payment_link_id:
-            cursor.execute("""
-                UPDATE payment_intents
-                SET status = 'completed', updated_at = ?
-                WHERE (payment_link_id = ? OR telegram_id = ?) AND status = 'initiated'
-            """, (now_str, payment_link_id, telegram_id))
-        else:
-            cursor.execute("""
-                UPDATE payment_intents
-                SET status = 'completed', updated_at = ?
-                WHERE telegram_id = ? AND status = 'initiated'
-            """, (now_str, telegram_id))
+        try:
+            if payment_link_id:
+                cursor.execute("""
+                    UPDATE payment_intents
+                    SET status = 'completed', updated_at = ?
+                    WHERE (payment_link_id = ? OR telegram_id = ?) AND status = 'initiated'
+                """, (now_str, payment_link_id, telegram_id))
+            else:
+                cursor.execute("""
+                    UPDATE payment_intents
+                    SET status = 'completed', updated_at = ?
+                    WHERE telegram_id = ? AND status = 'initiated'
+                """, (now_str, telegram_id))
+        except sqlite3.OperationalError:
+            if payment_link_id:
+                cursor.execute("""
+                    UPDATE payment_intents
+                    SET status = 'completed'
+                    WHERE (payment_link_id = ? OR telegram_id = ?) AND status = 'initiated'
+                """, (payment_link_id, telegram_id))
+            else:
+                cursor.execute("""
+                    UPDATE payment_intents
+                    SET status = 'completed'
+                    WHERE telegram_id = ? AND status = 'initiated'
+                """, (telegram_id,))
         conn.commit()
     except Exception as e:
         import logging
@@ -798,15 +825,25 @@ def update_payment_status(order_id, status, payment_id=None, payment_method=None
     cursor = conn.cursor()
     try:
         now_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-        cursor.execute("""
-            UPDATE payments
-            SET status = ?,
-                payment_id = COALESCE(?, payment_id),
-                payment_method = COALESCE(?, payment_method),
-                failure_reason = COALESCE(?, failure_reason),
-                updated_at = ?
-            WHERE order_id = ?
-        """, (status, payment_id, payment_method, failure_reason, now_str, order_id))
+        try:
+            cursor.execute("""
+                UPDATE payments
+                SET status = ?,
+                    payment_id = COALESCE(?, payment_id),
+                    payment_method = COALESCE(?, payment_method),
+                    failure_reason = COALESCE(?, failure_reason),
+                    updated_at = ?
+                WHERE order_id = ?
+            """, (status, payment_id, payment_method, failure_reason, now_str, order_id))
+        except sqlite3.OperationalError:
+            cursor.execute("""
+                UPDATE payments
+                SET status = ?,
+                    payment_id = COALESCE(?, payment_id),
+                    payment_method = COALESCE(?, payment_method),
+                    failure_reason = COALESCE(?, failure_reason)
+                WHERE order_id = ?
+            """, (status, payment_id, payment_method, failure_reason, order_id))
         conn.commit()
     except Exception as e:
         import logging
@@ -856,25 +893,45 @@ def unlock_paid_access_idempotent(telegram_id, order_id, payment_id, item_type="
     now_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
 
     # Mark payments table row as SUCCESS
-    cursor.execute("""
-        UPDATE payments
-        SET status = 'SUCCESS',
-            payment_id = COALESCE(?, payment_id),
-            payment_method = COALESCE(?, payment_method),
-            paid_at = ?,
-            access_unlocked_at = ?,
-            updated_at = ?
-        WHERE (order_id = ? AND order_id IS NOT NULL AND order_id != '')
-           OR (payment_id = ? AND payment_id IS NOT NULL AND payment_id != '')
-    """, (payment_id, payment_method, now_str, now_str, now_str, order_id, payment_id))
+    try:
+        cursor.execute("""
+            UPDATE payments
+            SET status = 'SUCCESS',
+                payment_id = COALESCE(?, payment_id),
+                payment_method = COALESCE(?, payment_method),
+                paid_at = ?,
+                access_unlocked_at = ?,
+                updated_at = ?
+            WHERE (order_id = ? AND order_id IS NOT NULL AND order_id != '')
+               OR (payment_id = ? AND payment_id IS NOT NULL AND payment_id != '')
+        """, (payment_id, payment_method, now_str, now_str, now_str, order_id, payment_id))
+    except sqlite3.OperationalError:
+        cursor.execute("""
+            UPDATE payments
+            SET status = 'SUCCESS',
+                payment_id = COALESCE(?, payment_id),
+                payment_method = COALESCE(?, payment_method),
+                paid_at = ?,
+                access_unlocked_at = ?
+            WHERE (order_id = ? AND order_id IS NOT NULL AND order_id != '')
+               OR (payment_id = ? AND payment_id IS NOT NULL AND payment_id != '')
+        """, (payment_id, payment_method, now_str, now_str, order_id, payment_id))
     
     if cursor.rowcount == 0:
-        cursor.execute("""
-            INSERT INTO payments (
-                telegram_id, user_id, order_id, payment_id, amount, currency, item_type,
-                status, payment_gateway, payment_method, paid_at, access_unlocked_at, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'SUCCESS', ?, ?, ?, ?, ?, ?)
-        """, (telegram_id, telegram_id, order_id, payment_id, amount, currency, item_type, gateway, payment_method, now_str, now_str, now_str, now_str))
+        try:
+            cursor.execute("""
+                INSERT INTO payments (
+                    telegram_id, user_id, order_id, payment_id, amount, currency, item_type,
+                    status, payment_gateway, payment_method, paid_at, access_unlocked_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'SUCCESS', ?, ?, ?, ?, ?, ?)
+            """, (telegram_id, telegram_id, order_id, payment_id, amount, currency, item_type, gateway, payment_method, now_str, now_str, now_str, now_str))
+        except sqlite3.OperationalError:
+            cursor.execute("""
+                INSERT INTO payments (
+                    telegram_id, user_id, order_id, payment_id, amount, currency, item_type,
+                    status, payment_gateway, payment_method, paid_at, access_unlocked_at, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'SUCCESS', ?, ?, ?, ?, ?)
+            """, (telegram_id, telegram_id, order_id, payment_id, amount, currency, item_type, gateway, payment_method, now_str, now_str, now_str))
 
     conn.commit()
     conn.close()

@@ -791,6 +791,15 @@ async def handle_checkout_page(request):
                         name: "Karin AI Companion",
                         description: itemType === 'chat_pass' ? "24-Hour Unlimited Chat Pass" : "10 Image Credits",
                         order_id: data.order_id,
+                        prefill: {{
+                            name: "User " + tgUserId,
+                            email: "user_" + tgUserId + "@karin.ai",
+                            contact: "9999999999"
+                        }},
+                        notes: {{
+                            user_id: tgUserId,
+                            item_type: itemType
+                        }},
                         theme: {{ color: "#ff4a76" }},
                         handler: async function (paymentResponse) {{
                             payBtn.disabled = true;
@@ -837,7 +846,14 @@ async def handle_checkout_page(request):
                                 payBtn.disabled = false;
                                 spinner.style.display = 'none';
                                 btnText.innerText = 'Pay ₹50 with Razorpay';
-                            }}
+                                fetch('/api/payment-cancelled', {{
+                                    method: 'POST',
+                                    headers: {{ 'Content-Type': 'application/json' }},
+                                    body: JSON.stringify({{ order_id: data.order_id, user_id: tgUserId }})
+                                }}).catch(function(){{}});
+                            }},
+                            escape: true,
+                            backdropclose: false
                         }}
                     }};
                     const rzp = new Razorpay(options);
