@@ -759,7 +759,7 @@ def log_payment_event(
         conn.close()
 
 
-def create_payment_order(telegram_id, order_id, amount=5000, item_type="chat_pass", currency="INR"):
+def create_payment_order(telegram_id, order_id, amount=5000, item_type="chat_pass", currency="INR", payment_gateway="instamojo"):
     """
     Creates a pending transaction order record in payments table and logs creation event.
     """
@@ -770,8 +770,8 @@ def create_payment_order(telegram_id, order_id, amount=5000, item_type="chat_pas
         cursor.execute("""
             INSERT OR REPLACE INTO payments (
                 telegram_id, user_id, order_id, amount, currency, item_type, status, payment_gateway, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, 'PENDING', 'Razorpay', ?, ?)
-        """, (telegram_id, telegram_id, order_id, amount, currency, item_type, now_str, now_str))
+            ) VALUES (?, ?, ?, ?, ?, ?, 'PENDING', ?, ?, ?)
+        """, (telegram_id, telegram_id, order_id, amount, currency, item_type, payment_gateway, now_str, now_str))
         conn.commit()
     except Exception as e:
         import logging

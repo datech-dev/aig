@@ -6,7 +6,7 @@ import random
 import re
 import asyncio
 from datetime import datetime
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice, WebAppInfo
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -47,9 +47,14 @@ def get_chat_paywall_keyboard(user_id=None):
         pay_url = f"{base_url}/checkout/initiate?user_id={user_id}&item_type=chat_pass"
     else:
         pay_url = f"{base_url}/checkout"
+        
+    web_app_url = pay_url
+    if web_app_url.startswith("http://"):
+        web_app_url = "https://" + web_app_url[7:]
+
     keyboard = [
         [
-            InlineKeyboardButton("💳 Continue for ₹50 — Open Payment Page", url=pay_url)
+            InlineKeyboardButton("💳 Continue for ₹50 (Pay inside Telegram)", web_app=WebAppInfo(url=web_app_url))
         ],
         [
             InlineKeyboardButton("🔙 View Profile / Balance", callback_data="profile_back")
@@ -63,9 +68,14 @@ def get_image_paywall_keyboard(user_id=None):
         pay_url = f"{base_url}/checkout/initiate?user_id={user_id}&item_type=image_credits"
     else:
         pay_url = f"{base_url}/checkout"
+
+    web_app_url = pay_url
+    if web_app_url.startswith("http://"):
+        web_app_url = "https://" + web_app_url[7:]
+
     keyboard = [
         [
-            InlineKeyboardButton("💳 Continue for ₹50 — Open Payment Page", url=pay_url)
+            InlineKeyboardButton("💳 Continue for ₹50 (Pay inside Telegram)", web_app=WebAppInfo(url=web_app_url))
         ],
         [
             InlineKeyboardButton("🔙 View Profile / Balance", callback_data="profile_back")

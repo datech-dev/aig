@@ -15,15 +15,15 @@ async def create_instamojo_payment_request(user_id: int, item_type: str = "chat_
     Returns tuple: (payment_request_id, longurl, error_message)
     """
     endpoint = config.INSTAMOJO_ENDPOINT.rstrip("/") + "/payment-requests/"
-    api_key = config.INSTAMOJO_API_KEY
-    auth_token = config.INSTAMOJO_AUTH_TOKEN
+    api_key = (config.INSTAMOJO_API_KEY or "").strip()
+    auth_token = (config.INSTAMOJO_AUTH_TOKEN or "").strip()
+    base_url = (config.WEB_CHECKOUT_URL or "http://zetagirl.zetalink.cloud:8080").rstrip("/")
     
     if not api_key or not auth_token or api_key == "YOUR_INSTAMOJO_API_KEY" or auth_token == "YOUR_INSTAMOJO_AUTH_TOKEN":
-        # Fallback/mock order if credentials not yet configured
         import time
         mock_id = f"PR_mock_{user_id}_{int(time.time())}"
-        mock_url = f"{config.WEB_CHECKOUT_URL}/checkout/instamojo/mock?order_id={mock_id}&user_id={user_id}&item_type={item_type}"
-        return mock_id, mock_url, None
+        mock_url = f"{base_url}/checkout/instamojo/mock?order_id={mock_id}&user_id={user_id}&item_type={item_type}"
+        return mock_id, mock_url, "Missing API credentials"
 
     headers = {
         "X-Api-Key": api_key,
@@ -31,8 +31,8 @@ async def create_instamojo_payment_request(user_id: int, item_type: str = "chat_
     }
     
     purpose = "Karin AI 1-Day Chat Pass" if item_type == "chat_pass" else "Karin AI 10 Image Credits"
-    redirect_url = f"{config.WEB_CHECKOUT_URL}/checkout/instamojo/callback"
-    webhook_url = f"{config.WEB_CHECKOUT_URL}/webhook/instamojo"
+    redirect_url = f"{base_url}/checkout/instamojo/callback"
+    webhook_url = f"{base_url}/webhook/instamojo"
     
     data = {
         "purpose": purpose[:30],
@@ -49,22 +49,34 @@ async def create_instamojo_payment_request(user_id: int, item_type: str = "chat_
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(endpoint, headers=headers, data=data) as resp:
-                resp_data = await resp.json()
+                resp_text = await resp.text()
+                try:
+                    resp_data = json.loads(resp_text)
+                except Exception:
+                    logger.error(f"Instamojo API non-JSON response ({resp.status}): {resp_text[:200]}")
+                    import time
+                    mock_id = f"PR_mock_{user_id}_{int(time.time())}"
+                    mock_url = f"{base_url}/checkout/instamojo/mock?order_id={mock_id}&user_id={user_id}&item_type={item_type}"
+                    return mock_id, mock_url, f"API HTTP {resp.status}"
+
                 if resp.status in (200, 201) and resp_data.get("success"):
                     pr = resp_data.get("payment_request", {})
-                    return pr.get("id"), pr.get("longurl"), None
+                    longurl = pr.get("longurl")
+                    if not longurl:
+                        longurl = f"{base_url}/checkout/instamojo/mock?order_id={pr.get('id')}&user_id={user_id}&item_type={item_type}"
+                    return pr.get("id"), longurl, None
                 else:
                     err_msg = resp_data.get("message") or resp_data.get("error") or str(resp_data)
                     logger.error(f"Instamojo API Error creating payment request: {err_msg}")
                     import time
                     mock_id = f"PR_mock_{user_id}_{int(time.time())}"
-                    mock_url = f"{config.WEB_CHECKOUT_URL}/checkout/instamojo/mock?order_id={mock_id}&user_id={user_id}&item_type={item_type}"
-                    return mock_id, mock_url, f"Instamojo API Error: {err_msg}"
+                    mock_url = f"{base_url}/checkout/instamojo/mock?order_id={mock_id}&user_id={user_id}&item_type={item_type}"
+                    return mock_id, mock_url, f"Instamojo Error: {err_msg}"
     except Exception as e:
         logger.error(f"HTTP exception during Instamojo API call: {e}")
         import time
         mock_id = f"PR_mock_{user_id}_{int(time.time())}"
-        mock_url = f"{config.WEB_CHECKOUT_URL}/checkout/instamojo/mock?order_id={mock_id}&user_id={user_id}&item_type={item_type}"
+        mock_url = f"{base_url}/checkout/instamojo/mock?order_id={mock_id}&user_id={user_id}&item_type={item_type}"
         return mock_id, mock_url, str(e)
 
 
@@ -539,32 +551,42 @@ async def handle_checkout_initiate(request):
     except ValueError:
         return web.Response(text="Invalid user_id parameter", status=400)
 
-    # Log pay_button_clicked event
-    database.log_payment_event(
-        event_name="pay_button_clicked",
-        telegram_user_id=user_id,
-        status="CLICKED",
-        payment_gateway="instamojo"
-    )
+    try:
+        # Log pay_button_clicked event
+        database.log_payment_event(
+            event_name="pay_button_clicked",
+            telegram_user_id=user_id,
+            status="CLICKED",
+            payment_gateway="instamojo"
+        )
 
-    # Create Instamojo Payment Request
-    order_id, pay_url, err = await create_instamojo_payment_request(user_id, item_type, amount_inr=50.0)
-    amount_paise = 5000
+        # Create Instamojo Payment Request
+        order_id, pay_url, err = await create_instamojo_payment_request(user_id, item_type, amount_inr=50.0)
+        amount_paise = 5000
 
-    # Register transaction order in payments table & log payment_order_created event
-    database.create_payment_order(user_id, order_id=order_id, amount=amount_paise, item_type=item_type)
+        # Register transaction order in payments table & log payment_order_created event
+        database.create_payment_order(user_id, order_id=order_id, amount=amount_paise, item_type=item_type, payment_gateway="instamojo")
 
-    database.log_payment_event(
-        event_name="payment_page_opened",
-        telegram_user_id=user_id,
-        order_id=order_id,
-        amount=amount_paise,
-        status="OPENED",
-        payment_gateway="instamojo"
-    )
+        database.log_payment_event(
+            event_name="payment_page_opened",
+            telegram_user_id=user_id,
+            order_id=order_id,
+            amount=amount_paise,
+            status="OPENED",
+            payment_gateway="instamojo"
+        )
 
-    # Redirect to Instamojo hosted checkout page
-    raise web.HTTPFound(location=pay_url)
+        if not pay_url:
+            base_url = (config.WEB_CHECKOUT_URL or "http://zetagirl.zetalink.cloud:8080").rstrip("/")
+            pay_url = f"{base_url}/checkout/instamojo/mock?order_id={order_id}&user_id={user_id}&item_type={item_type}"
+
+        # Redirect to Instamojo hosted checkout page
+        raise web.HTTPFound(location=pay_url)
+    except web.HTTPFound:
+        raise
+    except Exception as e:
+        logger.exception(f"Error initiating payment in /checkout/initiate: {e}")
+        return web.Response(text=f"Payment Initiation Error: {str(e)}", status=500)
 
 
 async def handle_checkout_page(request):
