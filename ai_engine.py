@@ -25,6 +25,7 @@ client = AsyncOpenAI(
 
 import re
 import database
+import safety_engine
 
 def extract_and_save_user_memories(user_id: int, user_message: str):
     """
@@ -79,6 +80,15 @@ def extract_and_save_user_memories(user_id: int, user_message: str):
         if len(val) > 1 and len(val) < 60:
             database.add_user_memory(user_id, f"Family/Friend detail: {rel_type} - {val}", category="detail")
 
+    # 6. Event Extraction & Pending Event Registration
+    event_match = re.search(r'\b(?:i have|my)\s+(an?\s+)?(interview|exam|presentation|meeting|doctor appointment|flight|trip)\s+([^.,!?\n]*)', text, re.IGNORECASE)
+    if event_match:
+        ev_type = event_match.group(2).strip()
+        ev_details = event_match.group(3).strip()
+        full_title = f"{ev_type.capitalize()} {ev_details}".strip()
+        database.add_user_memory(user_id, f"Pending Event: {full_title}", category="event", importance=3)
+        database.add_user_event(user_id, event_title=full_title, event_type=ev_type)
+
 
 async def generate_response(
     persona_key: str,
@@ -89,17 +99,21 @@ async def generate_response(
     user_message: str,
     user_orientation: str = 'straight',
     chat_mode: str = 'normal',
-    memories: list = None
+    memories: list = None,
+    user_id: int = None
 ) -> str:
     """
     Sends the conversation history, user input, and dynamic system prompt to Venice.ai
     and returns the generated response.
     """
-    if not VENICE_API_KEY or VENICE_API_KEY == "YOUR_VENICE_API_KEY":
-        return (
-            "⚠️ Venice.ai API key is missing! Please configure the `VENICE_API_KEY` "
-            "variable in the `.env` file of this project to start chatting."
-        )
+    # 0. Centralized Input Safety Check
+    input_safety = safety_engine.scan_input_safety(user_message)
+    if not input_safety.is_safe:
+        return input_safety.refusal_message
+
+    # Use ranked relevance-aware memory retrieval if user_id is given and memories not explicitly passed
+    if user_id and memories is None:
+        memories = database.get_user_memories_ranked(user_id, current_message=user_message, limit=10)
 
     # 1. Construct the system prompt instructions
     system_instruction = construct_system_prompt(
@@ -138,9 +152,10 @@ async def generate_response(
         )
 
         
-        # Extract and return response content
+        # Extract response content
         ai_reply = response.choices[0].message.content.strip()
-        return ai_reply
+        # Output Safety Middleware Scan
+        return safety_engine.scan_output_safety(ai_reply)
 
 
     except Exception as e:
@@ -277,7 +292,9 @@ async def evaluate_proactive_decision(
     chat_history: list = None,
     user_nickname: str = "Honey",
     ai_nickname: str = "Juhi",
-    time_of_day_context: str = "Evening"
+    time_of_day_context: str = "Evening",
+    trigger_type: str = "NORMAL",
+    current_time: str = None
 ) -> dict:
     """
     Proactive Decision Engine:
@@ -286,6 +303,12 @@ async def evaluate_proactive_decision(
     Returns: {"decision": "SEND" | "DONT_SEND", "reason": "...", "message": "..."}
     """
     import json
+    t_clean = (trigger_type or "").upper()
+    if any(k in t_clean for k in ["IN_PROGRESS", "FOLLOWED_UP", "RECENT_COOLDOWN"]):
+        return {"decision": "DONT_SEND", "reason": f"Event lifecycle / cooldown state forbids proactive message ({t_clean}).", "message": None}
+    if (t_clean == "PROACTIVE_TRIGGER" or "GENERIC" in t_clean) and (not memories or len(memories) == 0):
+        return {"decision": "DONT_SEND", "reason": "No pending memories, events, or specific reasons exist to justify proactive reachout.", "message": None}
+
     mem_list = "\n".join([f"- {m}" for m in (memories or [])]) if memories else "None stored yet."
     
     recent_msgs = []
@@ -299,18 +322,21 @@ async def evaluate_proactive_decision(
         "and decide whether Juhi should proactively reach out and send a message to the user right now.\n\n"
         "Evaluation Guidelines:\n"
         "1. DECIDE 'SEND' IF:\n"
-        "   - The user has stored memories about a problem, goal, work stress, exam, or feeling that Juhi can check in on.\n"
-        "   - It's a natural time of day (e.g. Morning or Evening) to send a sweet, caring check-in or greeting.\n"
-        "   - The user has been quiet for a while and reaching out will make them feel cared for and valued.\n"
+        "   - If trigger_type is 'PROACTIVE_TRIGGER_PRE_EVENT' or 'PROACTIVE_TRIGGER_BEFORE_EVENT': Wish good luck for the upcoming event (e.g. 'Good luck on your interview today!').\n"
+        "   - If trigger_type is 'PROACTIVE_TRIGGER_AFTER_EVENT': The event has passed. Ask how it went (e.g. 'How did your presentation go?'). Do NOT wish good luck for a past event!\n"
+        "   - If trigger_type is 'PROACTIVE_TRIGGER_SCHEDULED_MORNING': Send a warm morning greeting (e.g. 'Good morning! Hope you have a wonderful day! ☀️').\n"
+        "   - If trigger_type is 'PROACTIVE_TRIGGER_SCHEDULED_EVENING': Send a warm evening check-in (e.g. 'Good evening! How was your day today? 🌙').\n"
+        "   - The user has stored memories about a problem, goal, or work stress that Juhi can check in on specifically.\n"
         "2. DECIDE 'DONT_SEND' IF:\n"
-        "   - There is no clear context, memory, or reason to reach out.\n"
-        "   - The user's last message was a definitive ending or goodnight and reaching out right now would feel intrusive or spammy.\n\n"
+        "   - If trigger_type is 'PROACTIVE_TRIGGER_IN_PROGRESS', 'PROACTIVE_TRIGGER_RECENT_COOLDOWN', or 'PROACTIVE_TRIGGER_FOLLOWED_UP': Decide DONT_SEND!\n"
+        "   - There are NO pending memories, events, or specific reasons to reach out (avoid generic spam like 'I've been thinking about you' with no context).\n"
+        "   - The user's last message was a definitive ending or goodnight.\n\n"
         "3. OUTPUT FORMAT:\n"
         "Your response MUST be valid JSON in this exact structure:\n"
         "{\n"
         '  "decision": "SEND" or "DONT_SEND",\n'
         '  "reason": "Brief 1-sentence explanation of why this decision was made",\n'
-        '  "message": "Juhi\'s proactive message to the user (if SEND), written in her casual, warm, sweet texting style under 25 words with emojis. If DONT_SEND, leave empty string."\n'
+        '  "message": "Juhi\'s proactive message to the user (if SEND), written in her casual, warm, sweet texting style under 20 words with emojis. If DONT_SEND, leave empty string."\n'
         "}"
     )
 

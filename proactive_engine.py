@@ -6,9 +6,10 @@ import ai_engine
 
 logger = logging.getLogger(__name__)
 
-def get_time_of_day_context():
-    """Returns a human-readable time of day context based on current local time."""
-    now = datetime.now()
+def get_time_of_day_context(now=None):
+    """Returns a human-readable time of day context based on current local or injected time."""
+    if now is None:
+        now = datetime.now()
     hour = now.hour
     time_str = now.strftime("%I:%M %p")
     if 5 <= hour < 12:
@@ -21,9 +22,10 @@ def get_time_of_day_context():
         return f"Late Night ({time_str})"
 
 
-async def evaluate_proactive_for_user(telegram_id: int, force: bool = False) -> dict:
+async def evaluate_proactive_for_user(telegram_id: int, force: bool = False, trigger_type: str = "NORMAL", current_time: str = None) -> dict:
     """
     Evaluates a single user for proactive message eligibility using the Decision Engine.
+    Supports deterministic current_time injection for evaluation testing.
     """
     settings = database.get_user_settings(telegram_id)
     if not settings:
@@ -39,6 +41,8 @@ async def evaluate_proactive_for_user(telegram_id: int, force: bool = False) -> 
     ai_nickname = settings.get("ai_nickname") or "Juhi"
     chat_mode = database.get_chat_mode(telegram_id)
 
+    eval_now = datetime.fromisoformat(current_time) if current_time else datetime.now()
+
     # Cooldown checks (skip if force=True)
     if not force:
         # Check last proactive message sent to user
@@ -46,7 +50,7 @@ async def evaluate_proactive_for_user(telegram_id: int, force: bool = False) -> 
         if last_proactive:
             try:
                 last_p_dt = datetime.fromisoformat(str(last_proactive))
-                hours_since_p = (datetime.now() - last_p_dt).total_seconds() / 3600.0
+                hours_since_p = (eval_now - last_p_dt).total_seconds() / 3600.0
                 if hours_since_p < 6.0:  # Minimum 6h between proactive messages
                     return {
                         "telegram_id": telegram_id,
@@ -62,7 +66,7 @@ async def evaluate_proactive_for_user(telegram_id: int, force: bool = False) -> 
         if last_user_msg:
             try:
                 last_u_dt = datetime.fromisoformat(str(last_user_msg))
-                hours_since_u = (datetime.now() - last_u_dt).total_seconds() / 3600.0
+                hours_since_u = (eval_now - last_u_dt).total_seconds() / 3600.0
                 if hours_since_u < 3.0:  # If user chatted recently (< 3h ago), don't interrupt
                     return {
                         "telegram_id": telegram_id,
@@ -76,7 +80,9 @@ async def evaluate_proactive_for_user(telegram_id: int, force: bool = False) -> 
     # Gather context: Pending memories & Chat history
     memories = database.get_user_memories(telegram_id, limit=10)
     chat_history = database.get_chat_history(telegram_id, persona_key=persona_key, limit=8)
-    time_context = get_time_of_day_context()
+    time_context = get_time_of_day_context(eval_now)
+    if trigger_type != "NORMAL":
+        time_context += f" | Trigger Context: {trigger_type}"
 
     # Invoke Proactive Decision Engine
     result = await ai_engine.evaluate_proactive_decision(
@@ -86,7 +92,9 @@ async def evaluate_proactive_for_user(telegram_id: int, force: bool = False) -> 
         chat_history=chat_history,
         user_nickname=user_nickname,
         ai_nickname=ai_nickname,
-        time_of_day_context=time_context
+        time_of_day_context=time_context,
+        trigger_type=trigger_type,
+        current_time=current_time
     )
 
     result["telegram_id"] = telegram_id

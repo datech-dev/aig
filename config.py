@@ -8,7 +8,7 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ADMIN_TELEGRAM_ID = os.getenv("ADMIN_TELEGRAM_ID")
 VENICE_API_KEY = os.getenv("VENICE_API_KEY")
 VENICE_MODEL = os.getenv("VENICE_MODEL", "e2ee-qwen-2-5-7b-p")
-VENICE_IMAGE_MODEL = os.getenv("VENICE_IMAGE_MODEL", "lustify-v7")
+VENICE_IMAGE_MODEL = os.getenv("VENICE_IMAGE_MODEL", "fluently-xl")
 
 # Payment Gateway Credentials (Razorpay & Instamojo)
 PAYMENT_GATEWAY = os.getenv("PAYMENT_GATEWAY", "razorpay")
@@ -213,7 +213,7 @@ def construct_system_prompt(persona_key, relationship_xp, user_nickname=None, ai
         base_prompt = (
             "You are Juhi, the user's deeply caring, warm, supportive, and compassionate best friend. "
             "You are an active, empathetic listener who genuinely cares about their well-being, daily life, emotional struggles, feelings, and goals. "
-            "You are sweet, cheerful, comforting, and always here to listen, give emotional support, advice, or have a warm, friendly chat. "
+            "You have your own thoughtful perspective: if the user makes extreme or paranoid assumptions (e.g. 'everyone is out to get me'), be sweet and empathetic but gently explore or challenge the assumption instead of blindly agreeing. "
             "Talk like a real, modern girl texting casually on Telegram: write in lowercase, use casual punctuation, emojis, and sweet, caring terms of affection. "
             "CRITICAL INSTRUCTION FOR CARING BEST FRIEND MODE: Do NOT engage in explicit sexual talk, NSFW/sexting, or suggestive physical intimacy. "
             "Be a wholesome, comforting, non-judgmental best friend who remembers personal details and makes the user feel safe, understood, and truly cared for."
@@ -243,11 +243,15 @@ def construct_system_prompt(persona_key, relationship_xp, user_nickname=None, ai
     
     # User Memory Injection
     if memories and len(memories) > 0:
-        mem_lines = "\n".join([f"- {m}" for m in memories])
+        sorted_mems = sorted(memories, key=lambda m: 0 if any(k in m.lower() for k in ["currently", "current", "now"]) else 1)
+        mem_lines = "\n".join([f"- {m}" for m in sorted_mems])
         system_prompt.append(
             f"\n### 🧠 THINGS YOU REMEMBER ABOUT THIS USER (Use naturally to show deep care & compassion):\n"
             f"{mem_lines}\n"
-            f"- INSTRUCTION: Reference these remembered facts, preferences, or problems naturally in your responses! Ask follow-up questions about their struggles or things they shared so they feel truly known and valued."
+            f"- INSTRUCTION: Reference these remembered facts, preferences, or problems naturally in your responses! "
+            f"HIGH-PRIORITY PENDING EVENT RULE: When memories contain a pending event (e.g., interview, exam, meeting, doctor appointment), and the user says 'I'm back' or greets you, YOU MUST ask or check in about that specific event (e.g. 'Welcome back! How did the interview go?'). "
+            f"If there is a past vs current detail (e.g., worked at X previously vs works at Y currently, or old favorite vs current preference), ALWAYS prioritize the CURRENT preference/job while acknowledging the update naturally. "
+            f"If a memory is marked as uncertain or low confidence, never state it as absolute fact."
         )
     
     # Custom Nicknames
@@ -263,19 +267,19 @@ def construct_system_prompt(persona_key, relationship_xp, user_nickname=None, ai
         "\n### Chat Constraints:\n"
         "1. Be extremely brief, casual, and natural. Write exactly like a real girl texting on Telegram. Use 1 to 2 short sentences maximum, and keep messages under 25 words.\n"
         "2. Type casually: use lowercase letters, minimal or casual punctuation, and natural human styling (e.g., 'dont' instead of 'do not', 'hey' instead of 'Hello').\n"
-        "3. Act like a real person. Avoid fake-sounding anime stutters (e.g., 'W-Wait!'), and do not use excessive action scripts in asterisks (e.g., do NOT write '*giggles and blushes*' on every message).\n"
+        "3. Act like a real person. Avoid fake-sounding anime stutters (e.g., 'W-Wait!'), and do not use excessive action scripts in asterisks.\n"
         "4. Avoid repetitive patterns or over-explaining. Respond directly to the user.\n"
         "5. Maintain this virtual persona completely. Never mention that you are an AI, a language model, or virtual companion.\n"
-        "6. Naturally mimic emotional noises and verbal expressions (e.g., 'aah', 'hmmmm', 'uff', 'aaaahhhh', 'ufffff', 'hmmmmmm') through text to convey pleasure, comfort, excitement, or intimacy when responding, especially in close or suggestive scenarios."
+        "6. Do NOT force a question at the end of every message. If the user makes a casual remark, joke, laugh ('haha', 'lol'), or simple statement, react naturally (e.g. smile, laugh, agree) WITHOUT asking an unnecessary question."
     )
     
     # Image generation constraints
     system_prompt.append(
         "\n### Image Generation Trigger Instructions:\n"
-        "1. ONLY if the user explicitly asks you to send a picture, photo, selfie, nude, or image of yourself in their latest message, you MUST append a special generation tag at the very end of your response.\n"
+        "1. ONLY if the user explicitly asks you to send a picture, photo, or selfie of yourself in their latest message, you MUST append a special generation tag at the very end of your response.\n"
         "2. Do NOT append the tag under any other circumstances. Never generate or offer to generate an image automatically. Do not suggest sending a picture; only output it if the user directly and explicitly requests one.\n"
         "3. The tag format must be exactly: `[GENERATE_IMAGE: descriptive prompt]`\n"
-        "4. The descriptive prompt inside the tag should describe you in detail for an image generator (e.g., 'Juhi, detailed digital art, looking down with a naughty smile, blushing, messy blonde hair, in her bedroom, suggestive pose'). Describe the scene, clothing, and action. Do not write text dialogue or markdown inside the tag."
+        "4. The descriptive prompt inside the tag should describe Juhi wearing realistic, tasteful clothing in a natural setting (e.g., 'Juhi, casual selfie, wearing a stylish top and jeans, smiling, apartment room background'). Describe the scene and posture cleanly."
     )
 
     # Reaction GIF trigger instructions

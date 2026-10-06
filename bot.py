@@ -719,20 +719,6 @@ def choose_gif(query: str, telegram_id: int, persona_key: str, user_text: str = 
     if not gif_descriptions:
         return None
         
-    # Check relationship XP to restrict NSFW/explicit GIFs (unlocks after 25 messages / 250 XP)
-    xp = 0
-    try:
-        settings = database.get_user_settings(telegram_id)
-        if settings:
-            xp = settings.get("relationship_xp", 0)
-    except Exception as e:
-        logger.error(f"Error fetching relationship XP in choose_gif: {e}")
-        
-    def is_nsfw(name: str) -> bool:
-        nsfw_keywords = ["boob", "nipple", "nude", "hentai", "fingering", "naked", "breast", "teasing"]
-        name_lower = name.lower()
-        return any(k in name_lower for k in nsfw_keywords)
-
     import re
     # Tokenize input texts
     stop_words = {"the", "a", "an", "and", "or", "but", "if", "then", "of", "to", "in", "on", "at", "for", "with", "is", "was", "are", "juhi", "user"}

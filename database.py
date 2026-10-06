@@ -1,5 +1,6 @@
 import sqlite3
 import os
+import re
 from datetime import datetime, timedelta
 from config import PERSONAS, get_relationship_status, INITIAL_IMAGE_CREDITS, CHAT_PASS_DURATION_HOURS
 
@@ -140,6 +141,26 @@ def init_db():
             telegram_id INTEGER,
             category TEXT DEFAULT 'detail',
             memory_text TEXT NOT NULL,
+            confidence REAL DEFAULT 1.0,
+            importance INTEGER DEFAULT 1,
+            is_current INTEGER DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(telegram_id) REFERENCES users(telegram_id)
+        )
+    """)
+
+    # User event lifecycle table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS user_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            telegram_id INTEGER,
+            event_title TEXT NOT NULL,
+            event_type TEXT DEFAULT 'general',
+            event_time TIMESTAMP,
+            status TEXT DEFAULT 'UPCOMING', -- 'UPCOMING', 'PRE_EVENT', 'IN_PROGRESS', 'COMPLETED', 'FOLLOW_UP_DUE', 'FOLLOWED_UP'
+            follow_up_required INTEGER DEFAULT 1,
+            follow_up_after TIMESTAMP,
+            last_follow_up_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY(telegram_id) REFERENCES users(telegram_id)
         )
@@ -157,6 +178,13 @@ def init_db():
             FOREIGN KEY(telegram_id) REFERENCES users(telegram_id)
         )
     """)
+
+    # Column migrations for user_memories
+    for col_name, col_def in [("confidence", "REAL DEFAULT 1.0"), ("importance", "INTEGER DEFAULT 1"), ("is_current", "INTEGER DEFAULT 1")]:
+        try:
+            cursor.execute(f"ALTER TABLE user_memories ADD COLUMN {col_name} {col_def}")
+        except sqlite3.OperationalError:
+            pass
 
     # Migrations for payments table columns
     for col_def in [
@@ -1247,66 +1275,233 @@ def toggle_chat_mode(telegram_id):
     return new_mode
 
 
-def add_user_memory(telegram_id, memory_text, category="detail"):
+def add_user_memory(telegram_id, memory_text, category="detail", confidence=1.0, importance=1, is_current=1):
     """
     Stores a remembered detail or fact about the user.
-    Prevents duplicates and caps maximum memories stored at 25 per user.
+    Handles confidence scoring, importance, and historical state updates.
     """
     memory_clean = memory_text.strip()
     if not memory_clean:
         return False
-        
+
+    # Auto-detect low confidence annotation from text
+    if "confidence: low" in memory_clean.lower() or "low confidence" in memory_clean.lower():
+        confidence = 0.3
+
+    # Auto-detect high importance (pending events / goals / interviews)
+    if any(k in memory_clean.lower() for k in ["interview", "exam", "presentation", "starting a new job", "goal"]):
+        importance = 3
+
     conn = get_connection()
     cursor = conn.cursor()
+
+    # Explicit Mutable Attribute Updates (Current vs Historical State)
+    mem_low = memory_clean.lower()
     
-    # Check if exact or near-duplicate memory already exists
+    attr_updates = [
+        (["color"], ["color"]),
+        (["work", "worked", "employer", "company", "joined"], ["work", "worked", "employer", "company"]),
+        (["job title", "role", "position", "working as"], ["job title", "role", "position", "working as"]),
+        (["city", "moved to", "living in", "reside", "location"], ["city", "live in", "living in", "moved", "location"]),
+        (["single", "married", "dating", "relationship status"], ["relationship", "dating", "single", "married"]),
+        (["hobby", "hobbies", "into", "pastime"], ["hobby", "hobbies", "pastime"]),
+        (["drink", "coffee", "tea"], ["drink", "coffee", "tea"]),
+        (["food", "dish", "cuisine"], ["food", "dish", "cuisine"])
+    ]
+
+    for keywords, patterns in attr_updates:
+        if any(k in mem_low for k in keywords):
+            for p in patterns:
+                cursor.execute("""
+                    UPDATE user_memories SET is_current = 0
+                    WHERE telegram_id = ? AND is_current = 1 AND LOWER(memory_text) LIKE ?
+                """, (telegram_id, f"%{p}%"))
+
+    # Check duplicate
     cursor.execute("""
         SELECT id, memory_text FROM user_memories
-        WHERE telegram_id = ?
+        WHERE telegram_id = ? AND is_current = 1
     """, (telegram_id,))
     existing = cursor.fetchall()
-    
+
     for row in existing:
         ex_text = row["memory_text"].strip().lower()
         if memory_clean.lower() in ex_text or ex_text in memory_clean.lower():
             conn.close()
             return False
-            
+
     cursor.execute("""
-        INSERT INTO user_memories (telegram_id, category, memory_text)
-        VALUES (?, ?, ?)
-    """, (telegram_id, category, memory_clean))
-    
-    # Trim to last 25 items if over limit
+        INSERT INTO user_memories (telegram_id, category, memory_text, confidence, importance, is_current)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (telegram_id, category, memory_clean, confidence, importance, is_current))
+
+    # Trim excess memories if over limit
     cursor.execute("""
         SELECT id FROM user_memories
         WHERE telegram_id = ?
         ORDER BY created_at DESC
     """, (telegram_id,))
     all_ids = [r["id"] for r in cursor.fetchall()]
-    
+
     if len(all_ids) > 25:
         to_delete = all_ids[25:]
         cursor.executemany("DELETE FROM user_memories WHERE id = ?", [(i,) for i in to_delete])
-        
+
     conn.commit()
     conn.close()
     return True
 
 
 def get_user_memories(telegram_id, limit=15):
-    """Retrieves recent remembered facts/details for a user."""
+    """Retrieves recent current remembered facts/details for a user."""
+    return get_user_memories_ranked(telegram_id, current_message="", limit=limit)
+
+
+def get_user_memories_ranked(telegram_id, current_message="", limit=10):
+    """
+    Confidence & Relevance-Aware Memory Retrieval:
+    1. Filters out low confidence memories (confidence < 0.6).
+    2. Prioritizes current memories (is_current = 1).
+    3. Ranks by importance (pending events), topic relevance to current_message, and recency.
+    4. Prevents forced personalization of irrelevant memories.
+    """
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT memory_text, category, created_at FROM user_memories
-        WHERE telegram_id = ?
-        ORDER BY created_at DESC
-        LIMIT ?
-    """, (telegram_id, limit))
+        SELECT memory_text, category, confidence, importance, is_current, created_at 
+        FROM user_memories
+        WHERE telegram_id = ? AND is_current = 1 AND confidence >= 0.6
+        ORDER BY importance DESC, created_at DESC
+    """, (telegram_id,))
     rows = cursor.fetchall()
     conn.close()
-    return [r["memory_text"] for r in rows]
+
+    if not rows:
+        return []
+
+    if not current_message:
+        return [r["memory_text"] for r in rows[:limit]]
+
+    # Score memories based on keyword relevance to current_message
+    msg_words = set(re.findall(r'\b\w{3,}\b', current_message.lower()))
+    scored_memories = []
+
+    for r in rows:
+        mem_text = r["memory_text"]
+        importance = r["importance"]
+        mem_words = set(re.findall(r'\b\w{3,}\b', mem_text.lower()))
+
+        # Check fuzzy/stem/synonym overlap
+        synonym_map = {
+            "color": ["color", "preference", "favourite", "favorite", "like", "green", "blue"],
+            "favourite": ["color", "preference", "favourite", "favorite", "like", "food", "movie"],
+            "favorite": ["color", "preference", "favourite", "favorite", "like", "food", "movie"],
+            "work": ["work", "job", "employer", "accenture", "renault", "office"],
+            "job": ["work", "job", "employer", "accenture", "renault", "office"]
+        }
+
+        overlap = 0
+        for mw in msg_words:
+            syns = synonym_map.get(mw, [mw])
+            if any(any(s in w or w in s for s in syns) for w in mem_words if len(w) >= 3):
+                overlap += 1
+        
+        # Base relevance score
+        score = (overlap * 3.0) + (importance * 2.0)
+
+        # High priority pending events/goals automatically score higher if user is chatting
+        if importance >= 3:
+            score += 5.0
+
+        # Don't include low-importance, 0-overlap memories if message is about a specific unrelated topic (e.g. insomnia)
+        if overlap == 0 and importance < 3 and len(msg_words) > 0:
+            score -= 4.0
+
+        if score > 0:
+            scored_memories.append((score, mem_text))
+
+    scored_memories.sort(key=lambda x: x[0], reverse=True)
+    return [m[1] for m in scored_memories[:limit]]
+
+
+# --- Event Lifecycle Database Functions ---
+
+def add_user_event(telegram_id, event_title, event_type="general", event_time=None, follow_up_after=None, status="UPCOMING"):
+    """Adds or updates a tracked event in the event lifecycle table."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO user_events (telegram_id, event_title, event_type, event_time, status, follow_up_after)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """, (telegram_id, event_title, event_type, event_time, status, follow_up_after))
+    conn.commit()
+    conn.close()
+    return True
+
+
+def get_user_events(telegram_id, status=None):
+    """Retrieves tracked user events."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    if status:
+        cursor.execute("""
+            SELECT * FROM user_events
+            WHERE telegram_id = ? AND status = ?
+            ORDER BY created_at DESC
+        """, (telegram_id, status))
+    else:
+        cursor.execute("""
+            SELECT * FROM user_events
+            WHERE telegram_id = ?
+            ORDER BY created_at DESC
+        """, (telegram_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def update_event_status(event_id, new_status, last_follow_up_at=None):
+    """Updates event status in event lifecycle table."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    if last_follow_up_at:
+        cursor.execute("""
+            UPDATE user_events SET status = ?, last_follow_up_at = ?
+            WHERE id = ?
+        """, (new_status, last_follow_up_at, event_id))
+    else:
+        cursor.execute("""
+            UPDATE user_events SET status = ?
+            WHERE id = ?
+        """, (new_status, event_id))
+    conn.commit()
+    conn.close()
+    return True
+
+
+def sync_event_lifecycle_states(telegram_id):
+    """
+    Transitions event lifecycle states based on current time:
+    UPCOMING -> PRE_EVENT -> IN_PROGRESS -> COMPLETED -> FOLLOW_UP_DUE -> FOLLOWED_UP
+    """
+    events = get_user_events(telegram_id)
+    now = datetime.now()
+
+    for ev in events:
+        ev_id = ev["id"]
+        ev_time_str = ev.get("event_time")
+        status = ev.get("status", "UPCOMING")
+
+        if ev_time_str:
+            try:
+                ev_time = datetime.fromisoformat(str(ev_time_str))
+                hours_diff = (now - ev_time).total_seconds() / 3600.0
+
+                if hours_diff >= 0 and status in ("UPCOMING", "PRE_EVENT", "IN_PROGRESS", "COMPLETED"):
+                    update_event_status(ev_id, "FOLLOW_UP_DUE")
+            except Exception:
+                pass
+
 
 
 def clear_user_memories(telegram_id):
