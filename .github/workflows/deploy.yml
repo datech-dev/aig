@@ -36,5 +36,3 @@ jobs:
           sudo systemctl daemon-reload
           sudo systemctl restart juhi-bot
           sudo systemctl status juhi-bot --no-pager || true
-          echo "=== Running Post-Deployment LLM-as-a-Judge Evaluation Pipeline ==="
-          .venv/bin/python evals/evaluate.py
