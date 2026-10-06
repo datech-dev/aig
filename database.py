@@ -145,6 +145,19 @@ def init_db():
         )
     """)
 
+    # Proactive Decision Engine logs table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS proactive_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            telegram_id INTEGER,
+            decision TEXT NOT NULL, -- 'SEND' or 'DONT_SEND'
+            reason TEXT,
+            message_sent TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(telegram_id) REFERENCES users(telegram_id)
+        )
+    """)
+
     # Migrations for payments table columns
     for col_def in [
         ("user_id", "INTEGER DEFAULT NULL"),
@@ -1304,4 +1317,78 @@ def clear_user_memories(telegram_id):
     conn.commit()
     conn.close()
     return True
+
+
+# --- Proactive Decision Engine Database Functions ---
+
+def log_proactive_decision(telegram_id, decision, reason, message_sent=None):
+    """Logs a proactive decision engine evaluation result."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO proactive_logs (telegram_id, decision, reason, message_sent)
+        VALUES (?, ?, ?, ?)
+    """, (telegram_id, decision, reason, message_sent))
+    conn.commit()
+    conn.close()
+    return True
+
+
+def get_last_user_message_time(telegram_id):
+    """Returns the ISO timestamp string of the last message sent by the user, or None."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT timestamp FROM chat_history
+        WHERE telegram_id = ? AND role = 'user'
+        ORDER BY timestamp DESC LIMIT 1
+    """, (telegram_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return row["timestamp"] if row else None
+
+
+def get_last_proactive_sent_time(telegram_id):
+    """Returns the ISO timestamp string of the last proactive message sent to the user, or None."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT created_at FROM proactive_logs
+        WHERE telegram_id = ? AND decision = 'SEND'
+        ORDER BY created_at DESC LIMIT 1
+    """, (telegram_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return row["created_at"] if row else None
+
+
+def get_proactive_logs(telegram_id=None, limit=10):
+    """Retrieves recent proactive decision logs."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    if telegram_id:
+        cursor.execute("""
+            SELECT telegram_id, decision, reason, message_sent, created_at FROM proactive_logs
+            WHERE telegram_id = ?
+            ORDER BY created_at DESC LIMIT ?
+        """, (telegram_id, limit))
+    else:
+        cursor.execute("""
+            SELECT telegram_id, decision, reason, message_sent, created_at FROM proactive_logs
+            ORDER BY created_at DESC LIMIT ?
+        """, (limit,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_all_registered_users():
+    """Retrieves list of all registered users."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT telegram_id, username, first_name FROM users ORDER BY created_at DESC")
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
 

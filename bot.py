@@ -1287,13 +1287,75 @@ async def memories_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(mem_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
 
+async def proactive_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Manually triggers the Proactive Decision Engine to evaluate pending memories 
+    and display the decision flowchart & output result to the user.
+    """
+    user = update.effective_user
+    if not user:
+        return
+        
+    await update.message.reply_chat_action(ChatAction.TYPING)
+    
+    from proactive_engine import evaluate_proactive_for_user
+    res = await evaluate_proactive_for_user(user.id, force=True)
+    
+    decision = res.get("decision", "DONT_SEND")
+    reason = html.escape(str(res.get("reason", "No evaluation reason provided.")))
+    message = res.get("message")
+    mem_count = res.get("memories_count", 0)
+    time_ctx = res.get("time_context", "Current Time")
+
+    decision_badge = "✅ <b>[SEND]</b>" if decision == "SEND" else "⛔ <b>[DON'T SEND]</b>"
+    
+    report_text = (
+        "🤖 <b>PROACTIVE DECISION ENGINE EVALUATION</b>\n\n"
+        "┌─────────────────────────────────────┐\n"
+        f"│ 🧠 <b>Pending Memories Analyzed:</b> <code>{mem_count} items</code>\n"
+        f"│ 🕒 <b>Time Context:</b> <code>{time_ctx}</code>\n"
+        "└──────────────────┬──────────────────┘\n"
+        "                   │\n"
+        "                   ▼\n"
+        "        ┌─────────────────────┐\n"
+        "        │ Proactive Decision  │\n"
+        "        │ Engine (Venice AI)  │\n"
+        "        └──────────┬──────────┘\n"
+        "                   │\n"
+        "        ┌──────────┴──────────┐\n"
+        "        ▼                     ▼\n"
+        f"     <b>[SEND]</b>               <b>[DON'T SEND]</b>\n"
+        "        │\n"
+        "        ▼\n"
+        " 📩 <b>Decision Result:</b>\n"
+        f"Status: {decision_badge}\n"
+        f"Reasoning: <i>{reason}</i>\n\n"
+    )
+    
+    if decision == "SEND" and message:
+        report_text += (
+            "💬 <b>Contextual Message Generated:</b>\n"
+            f"<i>\"{html.escape(message)}\"</i>\n"
+        )
+        
+    # Log to database
+    database.log_proactive_decision(user.id, decision, reason, message)
+    
+    await update.message.reply_text(report_text, parse_mode="HTML")
+
+
 # --- Main Application Boot ---
 
 async def post_init(application: Application):
-    """Starts the async webhook receiver server and sets official bot commands on Telegram."""
+    """Starts the async webhook receiver server, proactive scheduler, and sets official bot commands on Telegram."""
     from webhook_server import start_webhook_server
+    from proactive_engine import proactive_scheduler_loop
+    
     # Start Razorpay webhook server on port 8080 (shares the telegram event loop)
     asyncio.create_task(start_webhook_server(application, port=8080))
+    
+    # Start Proactive Decision Engine background scheduler (evaluates every 30 minutes)
+    asyncio.create_task(proactive_scheduler_loop(application, interval_minutes=30))
     
     # Overwrite & update official bot command list in Telegram to remove old third-party menus
     commands = [
@@ -1302,6 +1364,7 @@ async def post_init(application: Application):
         BotCommand("roleplay", "Switch companion persona"),
         BotCommand("mode", "Toggle Normal vs Intimate chat mode"),
         BotCommand("memories", "View stored memory bank"),
+        BotCommand("proactive", "Trigger Proactive Decision Engine check"),
         BotCommand("draw", "Generate custom AI image"),
         BotCommand("reset", "Reset chat history"),
         BotCommand("help", "View help & commands guide"),
@@ -1336,6 +1399,7 @@ def main():
     application.add_handler(CommandHandler("roleplay", roleplay_command))
     application.add_handler(CommandHandler("mode", mode_command))
     application.add_handler(CommandHandler("memories", memories_command))
+    application.add_handler(CommandHandler("proactive", proactive_command))
     application.add_handler(CommandHandler("draw", draw_command))
     application.add_handler(CommandHandler("image", draw_command))
     application.add_handler(CommandHandler("reset", reset_command))

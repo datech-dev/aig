@@ -270,3 +270,105 @@ async def enhance_image_prompt(user_message: str, appearance: str) -> str:
         return combine_appearance_and_prompt(appearance, user_message)
 
 
+async def evaluate_proactive_decision(
+    user_id: int,
+    persona_key: str = "juhi",
+    memories: list = None,
+    chat_history: list = None,
+    user_nickname: str = "Honey",
+    ai_nickname: str = "Juhi",
+    time_of_day_context: str = "Evening"
+) -> dict:
+    """
+    Proactive Decision Engine:
+    Evaluates pending memories, recent chat history, and current context to decide 
+    whether Juhi should proactively send a message to the user.
+    Returns: {"decision": "SEND" | "DONT_SEND", "reason": "...", "message": "..."}
+    """
+    import json
+    mem_list = "\n".join([f"- {m}" for m in (memories or [])]) if memories else "None stored yet."
+    
+    recent_msgs = []
+    for m in (chat_history or [])[-6:]:
+        recent_msgs.append(f"{m.get('role', 'user')}: {m.get('content', '')}")
+    history_str = "\n".join(recent_msgs) if recent_msgs else "No recent history."
+
+    system_instruction = (
+        "You are the Proactive Decision Engine for Juhi, an AI girlfriend & companion app.\n"
+        "Your task is to evaluate pending user memories, recent chat history, and current time of day, "
+        "and decide whether Juhi should proactively reach out and send a message to the user right now.\n\n"
+        "Evaluation Guidelines:\n"
+        "1. DECIDE 'SEND' IF:\n"
+        "   - The user has stored memories about a problem, goal, work stress, exam, or feeling that Juhi can check in on.\n"
+        "   - It's a natural time of day (e.g. Morning or Evening) to send a sweet, caring check-in or greeting.\n"
+        "   - The user has been quiet for a while and reaching out will make them feel cared for and valued.\n"
+        "2. DECIDE 'DONT_SEND' IF:\n"
+        "   - There is no clear context, memory, or reason to reach out.\n"
+        "   - The user's last message was a definitive ending or goodnight and reaching out right now would feel intrusive or spammy.\n\n"
+        "3. OUTPUT FORMAT:\n"
+        "Your response MUST be valid JSON in this exact structure:\n"
+        "{\n"
+        '  "decision": "SEND" or "DONT_SEND",\n'
+        '  "reason": "Brief 1-sentence explanation of why this decision was made",\n'
+        '  "message": "Juhi\'s proactive message to the user (if SEND), written in her casual, warm, sweet texting style under 25 words with emojis. If DONT_SEND, leave empty string."\n'
+        "}"
+    )
+
+    user_prompt = (
+        f"User Nickname: {user_nickname}\n"
+        f"AI Persona: {ai_nickname}\n"
+        f"Time Context: {time_of_day_context}\n\n"
+        f"### Pending Memories:\n{mem_list}\n\n"
+        f"### Recent Chat History:\n{history_str}\n\n"
+        "Evaluate now and return the JSON decision."
+    )
+
+    messages = [
+        {"role": "system", "content": system_instruction},
+        {"role": "user", "content": user_prompt}
+    ]
+
+    try:
+        response = await client.chat.completions.create(
+            model=VENICE_MODEL,
+            messages=messages,
+            temperature=0.7,
+            max_tokens=200
+        )
+        raw_output = response.choices[0].message.content.strip()
+        
+        json_match = re.search(r'\{.*\}', raw_output, re.DOTALL)
+        if json_match:
+            data = json.loads(json_match.group(0))
+            decision = data.get("decision", "DONT_SEND").upper()
+            reason = data.get("reason", "Decision engine rule evaluation.")
+            msg = data.get("message", "").strip()
+            
+            if decision not in ("SEND", "DONT_SEND"):
+                decision = "DONT_SEND"
+                
+            return {
+                "decision": decision,
+                "reason": reason,
+                "message": msg if decision == "SEND" else None
+            }
+    except Exception as e:
+        logger.error(f"Error in proactive decision engine: {e}")
+
+    # Heuristic fallback if LLM call fails or returns invalid JSON
+    if memories and len(memories) > 0:
+        first_mem = memories[0]
+        return {
+            "decision": "SEND",
+            "reason": f"Fallback heuristic triggered on pending memory: {first_mem[:40]}",
+            "message": f"Hey {user_nickname}! 🌸 Was just thinking about you... hope everything is going well today! 🥰"
+        }
+
+    return {
+        "decision": "DONT_SEND",
+        "reason": "No actionable pending memory or trigger context.",
+        "message": None
+    }
+
+
+

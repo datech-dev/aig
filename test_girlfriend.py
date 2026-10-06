@@ -589,7 +589,38 @@ class TestGirlfriendApp(unittest.TestCase):
             self.assertIn("order_id", header)
             self.assertIn("access_unlocked", header)
 
+    def test_18_proactive_decision_engine(self):
+        """Verify Proactive Decision Engine logging, evaluation, and background check workflow."""
+        test_user_id = 99998888
+        database.setup_user(test_user_id, "proactive_user", "ProactiveUser")
+        database.add_user_memory(test_user_id, "Emotional state: Feeling anxious about upcoming interview", category="problem")
+        
+        # 1. Verify proactive decision logging
+        database.log_proactive_decision(test_user_id, "SEND", "Memory trigger: interview anxiety", "Hey Honey! Hope your interview goes great today! 🥰")
+        logs = database.get_proactive_logs(test_user_id)
+        self.assertGreaterEqual(len(logs), 1)
+        self.assertEqual(logs[0]["decision"], "SEND")
+        self.assertEqual(logs[0]["message_sent"], "Hey Honey! Hope your interview goes great today! 🥰")
+        
+        # 2. Verify get_last_proactive_sent_time
+        last_sent = database.get_last_proactive_sent_time(test_user_id)
+        self.assertIsNotNone(last_sent)
+        
+        # 3. Test proactive decision engine evaluation via proactive_engine module
+        import proactive_engine
+        import asyncio
+        res = asyncio.run(proactive_engine.evaluate_proactive_for_user(test_user_id, force=True))
+        self.assertIn("decision", res)
+        self.assertIn(res["decision"], ["SEND", "DONT_SEND"])
+        self.assertIn("reason", res)
+        
+        # 4. Test execute_proactive_check with application=None (dry run execution)
+        exec_results = asyncio.run(proactive_engine.execute_proactive_check(application=None, telegram_id=test_user_id, force=True))
+        self.assertEqual(len(exec_results), 1)
+        self.assertEqual(exec_results[0]["telegram_id"], test_user_id)
+
 
 if __name__ == "__main__":
     unittest.main()
+
 
