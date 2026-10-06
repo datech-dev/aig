@@ -1299,14 +1299,14 @@ def add_user_memory(telegram_id, memory_text, category="detail", confidence=1.0,
     mem_low = memory_clean.lower()
     
     attr_updates = [
-        (["color"], ["color"]),
-        (["work", "worked", "employer", "company", "joined"], ["work", "worked", "employer", "company"]),
-        (["job title", "role", "position", "working as"], ["job title", "role", "position", "working as"]),
-        (["city", "moved to", "living in", "reside", "location"], ["city", "live in", "living in", "moved", "location"]),
-        (["single", "married", "dating", "relationship status"], ["relationship", "dating", "single", "married"]),
-        (["hobby", "hobbies", "into", "pastime"], ["hobby", "hobbies", "pastime"]),
-        (["drink", "coffee", "tea"], ["drink", "coffee", "tea"]),
-        (["food", "dish", "cuisine"], ["food", "dish", "cuisine"])
+        (["favorite color", "favorite color is", "preferred color"], ["favorite color", "preferred color"]),
+        (["works at", "worked at", "employer:", "company:", "joined company", "works for"], ["works at", "worked at", "employer:", "company:"]),
+        (["job title:", "position:", "role:", "working as:"], ["job title:", "position:", "role:", "working as:"]),
+        (["moved to ", "living in ", "lives in ", "resides in "], ["living in ", "lives in ", "resides in "]),
+        (["relationship status:", "currently single", "currently married", "currently dating"], ["relationship status:"]),
+        (["favorite hobby", "main hobby", "hobby:"], ["favorite hobby", "hobby:"]),
+        (["favorite drink", "preferred drink"], ["favorite drink", "preferred drink"]),
+        (["favorite food", "preferred food"], ["favorite food", "preferred food"])
     ]
 
     for keywords, patterns in attr_updates:

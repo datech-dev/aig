@@ -719,6 +719,13 @@ def choose_gif(query: str, telegram_id: int, persona_key: str, user_text: str = 
     if not gif_descriptions:
         return None
         
+    settings = database.get_user_settings(telegram_id) if telegram_id else None
+    xp = settings.get("relationship_xp", 0) if settings else 0
+
+    def is_nsfw(name: str) -> bool:
+        nsfw_keywords = ["hentai", "nude", "boob", "boobs", "nipple", "fingering", "fuck", "pussy", "dick", "sex"]
+        return any(k in name.lower() for k in nsfw_keywords)
+
     import re
     # Tokenize input texts
     stop_words = {"the", "a", "an", "and", "or", "but", "if", "then", "of", "to", "in", "on", "at", "for", "with", "is", "was", "are", "juhi", "user"}
