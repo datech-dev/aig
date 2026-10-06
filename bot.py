@@ -50,10 +50,7 @@ def get_chat_paywall_keyboard(user_id=None):
 
     keyboard = [
         [
-            InlineKeyboardButton("💳 Pay ₹50 inside Telegram", web_app=WebAppInfo(url=pay_url))
-        ],
-        [
-            InlineKeyboardButton("🌐 Open in Browser (Direct UPI / GPay)", url=pay_url)
+            InlineKeyboardButton("🌐 Open in Browser (Direct UPI / GPay / Card)", url=pay_url)
         ],
         [
             InlineKeyboardButton("🔙 View Profile / Balance", callback_data="profile_back")
@@ -70,10 +67,7 @@ def get_image_paywall_keyboard(user_id=None):
 
     keyboard = [
         [
-            InlineKeyboardButton("💳 Pay ₹50 inside Telegram", web_app=WebAppInfo(url=pay_url))
-        ],
-        [
-            InlineKeyboardButton("🌐 Open in Browser (Direct UPI / GPay)", url=pay_url)
+            InlineKeyboardButton("🌐 Open in Browser (Direct UPI / GPay / Card)", url=pay_url)
         ],
         [
             InlineKeyboardButton("🔙 View Profile / Balance", callback_data="profile_back")
@@ -659,7 +653,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             )
             await query.message.reply_text(
                 paywall_text,
-                reply_markup=get_image_paywall_keyboard(),
+                reply_markup=get_image_paywall_keyboard(user_id),
                 parse_mode="HTML"
             )
             return
@@ -913,16 +907,36 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         is_subscribed = database.is_chat_subscribed(user.id)
         billing = database.get_user_billing(user.id)
         free_used = billing.get("free_messages_used", 0) if billing else 0
-        
-        if not is_subscribed:
-            if free_used >= config.FREE_MESSAGE_LIMIT:
+        img_credits = billing.get("image_credits", 0) if billing else 0
+
+        # Check if user message is an image generation request
+        text_lower = text.lower().strip()
+        is_image_request = (
+            text_lower.startswith(("draw", "image", "/draw", "/image")) or
+            any(w in text_lower for w in ["photo", "picture", "pic", "image", "draw", "selfie", "nude", "show me", "send me", "look like"])
+        )
+
+        if not is_subscribed and free_used >= config.FREE_MESSAGE_LIMIT:
+            # If user has image credits AND is requesting an image/photo, allow image generation to proceed!
+            if img_credits > 0 and is_image_request:
+                pass
+            else:
                 database.log_payment_event("paywall_shown", user.id, status="SHOWN")
                 settings = database.get_user_settings(user.id)
                 u_nick = settings["user_nickname"] if (settings and settings.get("user_nickname")) else user.first_name
+                
+                extra_note = ""
+                if img_credits > 0:
+                    extra_note = (
+                        f"\n\n💡 <i>You have <b>{img_credits} Image Credit{'s' if img_credits > 1 else ''}</b> remaining! "
+                        f"You can use <code>/draw &lt;description&gt;</code> anytime to generate photos without a chat pass.</i>"
+                    )
+
                 paywall_text = (
-                    f"🥺 <b>Aww {html.escape(u_nick)}... Our free trial time just ran out for today!</b>\n\n"
+                    f"🥺 <b>Aww {html.escape(u_nick)}... Our free trial chat time just ran out for today!</b>\n\n"
                     f"I was having so much fun chatting with you and getting close... I really don't want us to stop here! 💖\n\n"
                     f"<b>Continue chatting with Karin for 1 day — ₹50</b> 👇"
+                    f"{extra_note}"
                 )
                 await safe_send_reply(
                     update,
