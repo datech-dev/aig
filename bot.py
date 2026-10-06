@@ -6,7 +6,7 @@ import random
 import re
 import asyncio
 from datetime import datetime
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice, WebAppInfo
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, LabeledPrice, WebAppInfo, BotCommand
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -1084,17 +1084,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+def is_admin_user(user) -> bool:
+    """Helper to check if a Telegram user has admin authorization."""
+    if not user:
+        return False
+    if config.ADMIN_TELEGRAM_ID and str(user.id).strip() == str(config.ADMIN_TELEGRAM_ID).strip():
+        return True
+    if user.username:
+        u_name = user.username.lstrip('@').lower()
+        if u_name in ["dhinesh_rajam", "dhineshrajam"]:
+            return True
+    return False
+
+
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin-only command to view detailed usage, user list, payment link abandonment, and revenue statistics."""
     user = update.effective_user
-    is_admin = False
-    if config.ADMIN_TELEGRAM_ID and str(user.id) == str(config.ADMIN_TELEGRAM_ID):
-        is_admin = True
-    if user.username and user.username.lower() == "dhinesh_rajam":
-        is_admin = True
-        
-    if not is_admin:
-        await update.message.reply_text("❌ You do not have permission to view stats.")
+    if not is_admin_user(user):
+        await update.message.reply_text(
+            f"❌ <b>Admin Permission Required</b>\n\n"
+            f"You do not have permission to view stats.\n"
+            f"<i>Your Telegram ID is:</i> <code>{user.id}</code>\n\n"
+            f"To enable admin access, add this to your <code>.env</code> file:\n"
+            f"<code>ADMIN_TELEGRAM_ID={user.id}</code>",
+            parse_mode="HTML"
+        )
         return
         
     try:
@@ -1167,14 +1181,15 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def export_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Admin-only command to export all users as a CSV file."""
     user = update.effective_user
-    is_admin = False
-    if config.ADMIN_TELEGRAM_ID and str(user.id) == str(config.ADMIN_TELEGRAM_ID):
-        is_admin = True
-    if user.username and user.username.lower() == "dhinesh_rajam":
-        is_admin = True
-        
-    if not is_admin:
-        await update.message.reply_text("❌ You do not have permission to export user data.")
+    if not is_admin_user(user):
+        await update.message.reply_text(
+            f"❌ <b>Admin Permission Required</b>\n\n"
+            f"You do not have permission to export user data.\n"
+            f"<i>Your Telegram ID is:</i> <code>{user.id}</code>\n\n"
+            f"To enable admin access, add this to your <code>.env</code> file:\n"
+            f"<code>ADMIN_TELEGRAM_ID={user.id}</code>",
+            parse_mode="HTML"
+        )
         return
 
     try:
@@ -1261,10 +1276,29 @@ async def memories_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # --- Main Application Boot ---
 
 async def post_init(application: Application):
-    """Starts the async webhook receiver server after the telegram application starts."""
+    """Starts the async webhook receiver server and sets official bot commands on Telegram."""
     from webhook_server import start_webhook_server
     # Start Razorpay webhook server on port 8080 (shares the telegram event loop)
     asyncio.create_task(start_webhook_server(application, port=8080))
+    
+    # Overwrite & update official bot command list in Telegram to remove old third-party menus
+    commands = [
+        BotCommand("start", "Start chatting with Karin"),
+        BotCommand("profile", "View profile, relationship level & status"),
+        BotCommand("roleplay", "Switch companion persona"),
+        BotCommand("mode", "Toggle Normal vs Intimate chat mode"),
+        BotCommand("memories", "View stored memory bank"),
+        BotCommand("draw", "Generate custom AI image"),
+        BotCommand("reset", "Reset chat history"),
+        BotCommand("help", "View help & commands guide"),
+        BotCommand("stats", "Admin stats & usage overview"),
+        BotCommand("export", "Export user data CSV")
+    ]
+    try:
+        await application.bot.set_my_commands(commands)
+        logger.info("Successfully updated official bot commands in Telegram.")
+    except Exception as e:
+        logger.error(f"Failed to set Telegram bot commands: {e}")
 
 
 def main():
