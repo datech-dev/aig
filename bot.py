@@ -87,7 +87,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Greets the user and starts the onboarding process (asking for nickname)."""
     user = update.effective_user
     database.setup_user(user.id, user.username, user.first_name)
-    database.update_active_persona(user.id, "karin")
+    database.update_active_persona(user.id, "juhi")
     
     # Set state to await nickname on start
     USER_STATES[user.id] = "AWAITING_START_NICKNAME"
@@ -102,8 +102,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def build_profile_view(user_id):
     """Constructs the profile text and reply markup keyboard."""
     settings = database.get_user_settings(user_id)
-    persona_key = settings["active_persona"] if settings else "karin"
-    persona = config.PERSONAS.get(persona_key, config.PERSONAS["karin"])
+    persona_key = settings["active_persona"] if settings else "juhi"
+    persona = config.PERSONAS.get(persona_key, config.PERSONAS["juhi"])
     xp = settings["relationship_xp"] if settings else 0
     status = config.get_relationship_status(xp)
     bar = get_progress_bar(status["percent"])
@@ -173,7 +173,7 @@ def build_profile_view(user_id):
 
 
 async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Displays the user's relationship progress with Karin, nicknames, mode, and billing info."""
+    """Displays the user's relationship progress with Juhi, nicknames, mode, and billing info."""
     user = update.effective_user
     database.setup_user(user.id, user.username, user.first_name)
     
@@ -182,16 +182,16 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def roleplay_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Displays a menu of available roleplays for Karin."""
+    """Displays a menu of available roleplays for Juhi."""
     user = update.effective_user
     database.setup_user(user.id, user.username, user.first_name)
     
     settings = database.get_user_settings(user.id)
-    active_persona = settings["active_persona"] if settings else "karin"
+    active_persona = settings["active_persona"] if settings else "juhi"
     
     menu_text = (
-        "🎭 <b>KARIN ROLEPLAY MANAGER</b> 🎭\n\n"
-        "Switch Karin's scenario to explore different stories and intimacy settings. "
+        "🎭 <b>JUHI ROLEPLAY MANAGER</b> 🎭\n\n"
+        "Switch Juhi's scenario to explore different stories and intimacy settings. "
         "Each roleplay has its own <b>independent chat history</b> so the scenarios don't get mixed up, "
         "but your <b>relationship XP/level & custom nicknames are shared</b>!\n\n"
         "<b>Current Active Mode:</b>\n"
@@ -220,7 +220,7 @@ async def roleplay_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def draw_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Generates an image of Karin using Venice.ai's 'lustify-v7' model if credits are available."""
+    """Generates an image of Juhi using Venice.ai's 'lustify-v7' model if credits are available."""
     user = update.effective_user
     database.setup_user(user.id, user.username, user.first_name)
     
@@ -241,7 +241,7 @@ async def draw_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     prompt = " ".join(context.args).strip()
     if not prompt:
-        await update.message.reply_text("💬 Please provide a prompt. Example: <code>/draw Karin, looking naughty, wearing a bikini, blushing</code>", parse_mode="HTML")
+        await update.message.reply_text("💬 Please provide a prompt. Example: <code>/draw Juhi, looking naughty, wearing a bikini, blushing</code>", parse_mode="HTML")
         return
         
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.UPLOAD_PHOTO)
@@ -249,8 +249,8 @@ async def draw_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         settings = database.get_user_settings(user.id)
-        persona_key = settings["active_persona"] if settings else "karin"
-        persona = config.PERSONAS.get(persona_key, config.PERSONAS["karin"])
+        persona_key = settings["active_persona"] if settings else "juhi"
+        persona = config.PERSONAS.get(persona_key, config.PERSONAS["juhi"])
         appearance = persona.get("appearance", "")
         full_prompt = config.combine_appearance_and_prompt(appearance, prompt)
         seed = settings.get("seed") if settings else None
@@ -284,8 +284,8 @@ async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     database.setup_user(user.id, user.username, user.first_name)
     
     settings = database.get_user_settings(user.id)
-    active_persona = settings["active_persona"] if settings else "karin"
-    persona = config.PERSONAS.get(active_persona, config.PERSONAS["karin"])
+    active_persona = settings["active_persona"] if settings else "juhi"
+    persona = config.PERSONAS.get(active_persona, config.PERSONAS["juhi"])
     
     keyboard = [
         [
@@ -305,17 +305,17 @@ async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Replies with list of commands and usage help."""
     help_text = (
-        "🤖 <b>Karin Bot - Quick Help</b>\n\n"
+        "🤖 <b>Juhi Bot - Quick Help</b>\n\n"
         "Here are the commands you can use to control the bot:\n"
-        "• /start - Greet Karin and begin chatting.\n"
+        "• /start - Greet Juhi and begin chatting.\n"
         "• /profile - Check relationship level, XP, and nicknames.\n"
-        "• /roleplay - Switch Karin's roleplay scenario (e.g. Long Drive, Forest Cottage, Alone at Home).\n"
-        "• /draw &lt;prompt&gt; - Generate custom images of Karin using Venice lustify-v7.\n"
-        "• /reset - Clear conversation history with Karin.\n"
+        "• /roleplay - Switch Juhi's roleplay scenario (e.g. Long Drive, Forest Cottage, Alone at Home).\n"
+        "• /draw &lt;prompt&gt; - Generate custom images of Juhi using Venice lustify-v7.\n"
+        "• /reset - Clear conversation history with Juhi.\n"
         "• /help - Display this help text.\n\n"
         "<b>💡 Chatting Tips:</b>\n"
         "- Just send normal messages to chat. Each reply from you increases your XP.\n"
-        "- You can ask Karin directly to send you a photo, and she will generate it!"
+        "- You can ask Juhi directly to send you a photo, and she will generate it!"
     )
     await update.message.reply_text(help_text, parse_mode="HTML")
 
@@ -351,7 +351,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
             transition_text = (
                 f"🎭 <b>Roleplay Scenario Switched!</b>\n"
                 f"🌟 <b>{persona['name']}</b> ({persona['tagline']})\n\n"
-                f"💬 <b>Karin:</b> {welcome_text}"
+                f"💬 <b>Juhi:</b> {welcome_text}"
             )
             await query.message.edit_text(transition_text, parse_mode="HTML")
         return
@@ -365,11 +365,11 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         # Now welcome them!
         settings = database.get_user_settings(user_id)
         u_nick = settings["user_nickname"] if settings and settings["user_nickname"] else "User"
-        persona = config.PERSONAS["karin"]
+        persona = config.PERSONAS["juhi"]
         avatar_path = persona["avatar_path"]
         
         welcome_text = (
-            f"⚡ <b>Hello {html.escape(u_nick)}! I'm Karin!</b> ⚡\n\n"
+            f"⚡ <b>Hello {html.escape(u_nick)}! I'm Juhi!</b> ⚡\n\n"
             f"<i>\"{persona['description']}\"</i>\n\n"
             f"I'm your girlfriend now. Let's chat! What do you want to talk about? 😉\n\n"
             f"<i>Tip: You can ask me to send you a picture at any time! You can also use /draw &lt;prompt&gt; to generate custom images.</i>"
@@ -400,7 +400,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     elif data == "menu_nicknames":
         settings = database.get_user_settings(user_id)
         u_nick = settings["user_nickname"] if settings["user_nickname"] else "User"
-        ai_nick = settings["ai_nickname"] if settings["ai_nickname"] else "Karin"
+        ai_nick = settings["ai_nickname"] if settings["ai_nickname"] else "Juhi"
         
         nickname_text = (
             f"✏️ <b>NICKNAME CONFIGURATION</b>\n\n"
@@ -445,8 +445,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     # 3. Profile Menu: Reset History Prompt
     elif data == "menu_reset_history":
         settings = database.get_user_settings(user_id)
-        active_persona = settings["active_persona"] if settings else "karin"
-        persona = config.PERSONAS.get(active_persona, config.PERSONAS["karin"])
+        active_persona = settings["active_persona"] if settings else "juhi"
+        persona = config.PERSONAS.get(active_persona, config.PERSONAS["juhi"])
         keyboard = [
             [
                 InlineKeyboardButton("❌ Yes, Clear History", callback_data=f"confirm_reset_{active_persona}"),
@@ -469,7 +469,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         if persona and "welcome_msg" in persona:
             database.add_chat_message(user_id, persona_key, "assistant", persona["welcome_msg"])
             
-        persona_name = persona.get("name", "Karin") if persona else "Karin"
+        persona_name = persona.get("name", "Juhi") if persona else "Juhi"
         await query.message.edit_text(
             f"🔄 Chat history with <b>{persona_name}</b> has been successfully cleared!",
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Back to Profile", callback_data="profile_back")]]),
@@ -480,7 +480,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     elif data == "buy_chat_menu":
         paywall_text = (
             f"💬 <b>CHAT PASS SUBSCRIPTION</b> 💬\n\n"
-            f"Get unlimited messaging with Karin for <b>1 day (24 hours)</b> for only <b>₹50</b>!\n\n"
+            f"Get unlimited messaging with Juhi for <b>1 day (24 hours)</b> for only <b>₹50</b>!\n\n"
             f"Click the button below to purchase or simulate payment."
         )
         await query.message.edit_text(
@@ -492,7 +492,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     elif data == "buy_image_menu":
         paywall_text = (
             f"📸 <b>IMAGE GENERATION CREDITS</b> 📸\n\n"
-            f"Generate custom images of Karin with her `/draw` command and dynamic selfie reactions!\n\n"
+            f"Generate custom images of Juhi with her `/draw` command and dynamic selfie reactions!\n\n"
             f"Purchase <b>10 images</b> for only <b>₹50</b>.\n\n"
             f"Click the button below to purchase or simulate payment."
         )
@@ -531,7 +531,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         
         checkout_text = (
             f"💬 <b>UNLIMITED CHAT PASS (24 HOURS)</b>\n\n"
-            f"Continue chatting with Karin for 1 day — <b>₹50</b>\n\n"
+            f"Continue chatting with Juhi for 1 day — <b>₹50</b>\n\n"
             f"✨ Keep your full conversation history & memories intact!\n\n"
             f"Click the button below to open your secure hosted payment page and complete your ₹50 purchase via UPI, Card, or NetBanking."
         )
@@ -569,9 +569,9 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         checkout_url = f"{checkout_base}/checkout?order_id={order_id}"
         
         checkout_text = (
-            f"📸 <b>10 KARIN IMAGE CREDITS</b>\n\n"
+            f"📸 <b>10 JUHI IMAGE CREDITS</b>\n\n"
             f"10 Custom Photo Credits — <b>₹50</b>\n\n"
-            f"Generate custom pictures of Karin using Venice lustify-v7!\n\n"
+            f"Generate custom pictures of Juhi using Venice lustify-v7!\n\n"
             f"Click the button below to open your secure payment page and complete your ₹50 purchase."
         )
         keyboard = [
@@ -592,13 +592,13 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         if new_mode == "normal":
             msg = (
                 "🌸 <b>Mode Switched: CARING BEST FRIEND</b> 🌸\n\n"
-                "Karin will now talk to you as a sweet, supportive, compassionate best friend! "
+                "Juhi will now talk to you as a sweet, supportive, compassionate best friend! "
                 "She will focus on listening to your day, comforting your struggles, and offering warm emotional care."
             )
         else:
             msg = (
                 "🔥 <b>Mode Switched: INTIMATE GIRLFRIEND</b> 🔥\n\n"
-                "Karin will now talk to you as a flirty, passionate, and deeply intimate girlfriend!"
+                "Juhi will now talk to you as a flirty, passionate, and deeply intimate girlfriend!"
             )
         keyboard = [[InlineKeyboardButton("🔙 Back to Profile", callback_data="profile_back")]]
         await query.message.edit_text(msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
@@ -607,7 +607,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         memories = database.get_user_memories(user_id)
         if not memories:
             mem_text = (
-                "🧠 <b>KARIN'S MEMORY BANK ABOUT YOU</b>\n\n"
+                "🧠 <b>JUHI'S MEMORY BANK ABOUT YOU</b>\n\n"
                 "<i>I haven't remembered any specific preferences or personal details yet!</i>\n\n"
                 "Chat with me and tell me about your job, favorite things, daily life, or feelings, and I'll keep them in mind to support you."
             )
@@ -615,7 +615,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         else:
             mem_list = "\n".join([f"• <b>{html.escape(m)}</b>" for m in memories])
             mem_text = (
-                f"🧠 <b>KARIN'S MEMORY BANK ABOUT YOU</b> 🧠\n\n"
+                f"🧠 <b>JUHI'S MEMORY BANK ABOUT YOU</b> 🧠\n\n"
                 f"Here are the personal details, preferences, and feelings you've shared with me:\n\n"
                 f"{mem_list}\n\n"
                 f"<i>I remember these details to understand you better, support your struggles, and care for you deeply!</i>"
@@ -648,7 +648,7 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         if billing["image_credits"] <= 0:
             paywall_text = (
                 f"📸 <b>IMAGE GENERATION LOCKED</b> 📸\n\n"
-                f"You need image credits to visualize Karin.\n"
+                f"You need image credits to visualize Juhi.\n"
                 f"Purchase 10 image credits for ₹50 to see it!"
             )
             await query.message.reply_text(
@@ -660,8 +660,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
 
         # Retrieve settings and active persona info
         settings = database.get_user_settings(user_id)
-        persona_key = settings["active_persona"] if settings else "karin"
-        persona = config.PERSONAS.get(persona_key, config.PERSONAS["karin"])
+        persona_key = settings["active_persona"] if settings else "juhi"
+        persona = config.PERSONAS.get(persona_key, config.PERSONAS["juhi"])
         appearance = persona.get("appearance", "")
 
         # Get last user message from chat history
@@ -735,7 +735,7 @@ def choose_gif(query: str, telegram_id: int, persona_key: str, user_text: str = 
 
     import re
     # Tokenize input texts
-    stop_words = {"the", "a", "an", "and", "or", "but", "if", "then", "of", "to", "in", "on", "at", "for", "with", "is", "was", "are", "karin", "user"}
+    stop_words = {"the", "a", "an", "and", "or", "but", "if", "then", "of", "to", "in", "on", "at", "for", "with", "is", "was", "are", "juhi", "user"}
     
     if query:
         # Explicit tag query: match query against name & description
@@ -935,7 +935,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 paywall_text = (
                     f"🥺 <b>Aww {html.escape(u_nick)}... Our free trial chat time just ran out for today!</b>\n\n"
                     f"I was having so much fun chatting with you and getting close... I really don't want us to stop here! 💖\n\n"
-                    f"<b>Continue chatting with Karin for 1 day — ₹50</b> 👇"
+                    f"<b>Continue chatting with Juhi for 1 day — ₹50</b> 👇"
                     f"{extra_note}"
                 )
                 await safe_send_reply(
@@ -951,8 +951,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
         
         settings = database.get_user_settings(user.id)
-        persona_key = settings["active_persona"] if settings else "karin"
-        persona = config.PERSONAS.get(persona_key, config.PERSONAS["karin"])
+        persona_key = settings["active_persona"] if settings else "juhi"
+        persona = config.PERSONAS.get(persona_key, config.PERSONAS["juhi"])
         xp = settings["relationship_xp"] if settings else 0
         
         u_nick = settings["user_nickname"] if (settings and settings["user_nickname"]) else user.first_name
@@ -965,7 +965,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         chat_mode = database.get_chat_mode(user.id)
         memories = database.get_user_memories(user.id)
         
-        # Get chat history for Karin
+        # Get chat history for Juhi
         history = database.get_chat_history(user.id, persona_key)
         
         # Generate response from Venice AI
@@ -1091,7 +1091,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except Exception as e:
         logger.error(f"Error in handle_message for user {user.id}: {e}", exc_info=True)
-        err_msg = f"⚠️ Karin Connection Error ({type(e).__name__}): {str(e)[:150]}"
+        err_msg = f"⚠️ Juhi Connection Error ({type(e).__name__}): {str(e)[:150]}"
         await safe_send_reply(
             update,
             err_msg
@@ -1175,7 +1175,7 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             abandoned_text += "<i>No abandoned payment links recorded.</i>\n"
             
         stats_card = (
-            f"📊 <b>Karin AI - Admin Statistics</b>\n\n"
+            f"📊 <b>Juhi AI - Admin Statistics</b>\n\n"
             f"👥 <b>Total Users Trying App:</b> {stats['total_users']}\n"
             f"⚠️ <b>Users Clicked Pay 50 & Left:</b> {stats['abandoned_checkouts_count']}\n"
             f"💳 <b>Total Paying Users:</b> {stats['paying_users']}\n"
@@ -1246,13 +1246,13 @@ async def mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if new_mode == "normal":
         msg = (
             "🌸 <b>Mode Switched: CARING BEST FRIEND</b> 🌸\n\n"
-            "Karin will now talk to you as a sweet, supportive, compassionate best friend! "
+            "Juhi will now talk to you as a sweet, supportive, compassionate best friend! "
             "She will focus on listening to your day, comforting your struggles, and offering warm emotional care without NSFW/explicit talk."
         )
     else:
         msg = (
             "🔥 <b>Mode Switched: INTIMATE GIRLFRIEND</b> 🔥\n\n"
-            "Karin will now talk to you as a flirty, passionate, and deeply intimate girlfriend!"
+            "Juhi will now talk to you as a flirty, passionate, and deeply intimate girlfriend!"
         )
     
     keyboard = [[InlineKeyboardButton("🔙 View Profile", callback_data="profile_back")]]
@@ -1267,7 +1267,7 @@ async def memories_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     memories = database.get_user_memories(user.id)
     if not memories:
         mem_text = (
-            "🧠 <b>KARIN'S MEMORY BANK ABOUT YOU</b>\n\n"
+            "🧠 <b>JUHI'S MEMORY BANK ABOUT YOU</b>\n\n"
             "<i>I haven't remembered any specific preferences or personal details yet!</i>\n\n"
             "Chat with me and tell me about your job, favorite things, daily life, or feelings, and I'll keep them in mind to support you."
         )
@@ -1275,7 +1275,7 @@ async def memories_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         mem_list = "\n".join([f"• <b>{html.escape(m)}</b>" for m in memories])
         mem_text = (
-            f"🧠 <b>KARIN'S MEMORY BANK ABOUT YOU</b> 🧠\n\n"
+            f"🧠 <b>JUHI'S MEMORY BANK ABOUT YOU</b> 🧠\n\n"
             f"Here are the personal details, preferences, and feelings you've shared with me:\n\n"
             f"{mem_list}\n\n"
             f"<i>I remember these details to understand you better, support your struggles, and care for you deeply!</i>"
@@ -1297,7 +1297,7 @@ async def post_init(application: Application):
     
     # Overwrite & update official bot command list in Telegram to remove old third-party menus
     commands = [
-        BotCommand("start", "Start chatting with Karin"),
+        BotCommand("start", "Start chatting with Juhi"),
         BotCommand("profile", "View profile, relationship level & status"),
         BotCommand("roleplay", "Switch companion persona"),
         BotCommand("mode", "Toggle Normal vs Intimate chat mode"),

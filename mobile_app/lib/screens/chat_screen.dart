@@ -202,7 +202,7 @@ class _ChatScreenState extends State<ChatScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  _profile?.partnerName ?? 'Karin',
+                  _profile?.partnerName ?? 'Juhi',
                   style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
                 Text(
@@ -261,7 +261,7 @@ class _ChatScreenState extends State<ChatScreen> {
                               Text('💬', style: TextStyle(fontSize: 40)),
                               SizedBox(height: 12),
                               Text(
-                                'Say hello to Karin!',
+                                'Say hello to Juhi!',
                                 style: TextStyle(color: AppTheme.textLight, fontSize: 16),
                               ),
                             ],
@@ -293,7 +293,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     SpinKitThreeBounce(color: AppTheme.primaryRose, size: 18),
                     SizedBox(width: 10),
                     Text(
-                      'Karin is typing...',
+                      'Juhi is typing...',
                       style: TextStyle(color: AppTheme.textLight, fontSize: 13, fontStyle: FontStyle.italic),
                     ),
                   ],
@@ -310,7 +310,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       style: const TextStyle(color: AppTheme.textWhite),
                       textCapitalization: TextCapitalization.sentences,
                       decoration: InputDecoration(
-                        hintText: 'Message Karin...',
+                        hintText: 'Message Juhi...',
                         hintStyle: const TextStyle(color: Colors.white38),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(24),

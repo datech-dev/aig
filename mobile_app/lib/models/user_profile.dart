@@ -36,7 +36,7 @@ class UserProfile {
   factory UserProfile.fromJson(Map<String, dynamic> json) {
     return UserProfile(
       userId: json['user_id'] ?? 0,
-      partnerName: json['partner_name'] ?? 'Karin',
+      partnerName: json['partner_name'] ?? 'Juhi',
       partnerTagline: json['partner_tagline'] ?? 'Alone at Home',
       chatMode: json['chat_mode'] ?? 'normal',
       chatModeLabel: json['chat_mode_label'] ?? 'Caring Best Friend',
@@ -45,7 +45,7 @@ class UserProfile {
       xp: json['xp'] ?? 0,
       percent: json['percent'] ?? 0,
       userNickname: json['user_nickname'] ?? 'User',
-      aiNickname: json['ai_nickname'] ?? 'Karin',
+      aiNickname: json['ai_nickname'] ?? 'Juhi',
       memoryCount: json['memory_count'] ?? 0,
       isSubscribed: json['is_subscribed'] ?? false,
       remainingFreeMessages: json['remaining_free_messages'] ?? 10,

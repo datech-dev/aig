@@ -30,7 +30,7 @@ def init_db():
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS user_active_persona (
             telegram_id INTEGER PRIMARY KEY,
-            active_persona TEXT DEFAULT 'karin',
+            active_persona TEXT DEFAULT 'juhi',
             FOREIGN KEY(telegram_id) REFERENCES users(telegram_id)
         )
     """)
@@ -226,7 +226,7 @@ def setup_user(telegram_id, username, first_name):
     # Initialize active persona pointer if not exists
     cursor.execute("""
         INSERT OR IGNORE INTO user_active_persona (telegram_id, active_persona)
-        VALUES (?, 'karin')
+        VALUES (?, 'juhi')
     """, (telegram_id,))
 
     # Initialize user billing if not exists
@@ -256,7 +256,7 @@ def setup_user(telegram_id, username, first_name):
 
 
 def get_active_persona_key(telegram_id):
-    """Retrieves the active persona key for a user, defaulting to 'karin'."""
+    """Retrieves the active persona key for a user, defaulting to 'juhi'."""
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT active_persona FROM user_active_persona WHERE telegram_id = ?", (telegram_id,))
@@ -264,7 +264,7 @@ def get_active_persona_key(telegram_id):
     conn.close()
     if row:
         return row["active_persona"]
-    return "karin"
+    return "juhi"
 
 
 
@@ -306,7 +306,7 @@ def get_user_settings(telegram_id):
 def update_active_persona(telegram_id, persona_key):
     """Updates the active persona key pointer for the user."""
     if persona_key not in PERSONAS:
-        persona_key = "karin"
+        persona_key = "juhi"
 
         
     conn = get_connection()
@@ -321,15 +321,15 @@ def update_active_persona(telegram_id, persona_key):
 
 
 def update_nicknames(telegram_id, user_nickname=None, ai_nickname=None):
-    """Updates custom nicknames for all Karin personas to keep them synchronized."""
+    """Updates custom nicknames for all Juhi personas to keep them synchronized."""
     active_persona = get_active_persona_key(telegram_id)
     
     conn = get_connection()
     cursor = conn.cursor()
     
     target_personas = [active_persona]
-    if active_persona.startswith("karin"):
-        target_personas = [p for p in PERSONAS.keys() if p.startswith("karin")]
+    if active_persona.startswith("juhi"):
+        target_personas = [p for p in PERSONAS.keys() if p.startswith("juhi")]
         
     for p_key in target_personas:
         if user_nickname is not None:
@@ -349,7 +349,7 @@ def update_nicknames(telegram_id, user_nickname=None, ai_nickname=None):
 
 
 def add_xp(telegram_id, amount=10):
-    """Adds relationship XP to the user's active companion, synchronizing it across all Karin personas."""
+    """Adds relationship XP to the user's active companion, synchronizing it across all Juhi personas."""
     active_persona = get_active_persona_key(telegram_id)
     
     conn = get_connection()
@@ -377,8 +377,8 @@ def add_xp(telegram_id, amount=10):
     leveled_up = new_level > old_level
     
     target_personas = [active_persona]
-    if active_persona.startswith("karin"):
-        target_personas = [p for p in PERSONAS.keys() if p.startswith("karin")]
+    if active_persona.startswith("juhi"):
+        target_personas = [p for p in PERSONAS.keys() if p.startswith("juhi")]
         
     for p_key in target_personas:
         cursor.execute("""
@@ -1168,14 +1168,14 @@ def add_user_recent_gif(telegram_id, persona_key, gif_name):
 
 
 def update_user_orientation(telegram_id, orientation):
-    """Updates custom user orientation settings for all Karin personas to keep them synchronized."""
+    """Updates custom user orientation settings for all Juhi personas to keep them synchronized."""
     active_persona = get_active_persona_key(telegram_id)
     conn = get_connection()
     cursor = conn.cursor()
     
     target_personas = [active_persona]
-    if active_persona.startswith("karin"):
-        target_personas = [p for p in PERSONAS.keys() if p.startswith("karin")]
+    if active_persona.startswith("juhi"):
+        target_personas = [p for p in PERSONAS.keys() if p.startswith("juhi")]
         
     for p_key in target_personas:
         cursor.execute("""
@@ -1212,8 +1212,8 @@ def set_chat_mode(telegram_id, mode):
     cursor = conn.cursor()
     
     target_personas = [active_persona]
-    if active_persona.startswith("karin"):
-        target_personas = [p for p in PERSONAS.keys() if p.startswith("karin")]
+    if active_persona.startswith("juhi"):
+        target_personas = [p for p in PERSONAS.keys() if p.startswith("juhi")]
         
     for p_key in target_personas:
         cursor.execute("""

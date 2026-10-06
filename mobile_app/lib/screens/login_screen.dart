@@ -97,7 +97,7 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               const SizedBox(height: 16),
               const Text(
-                'Karin AI Companion',
+                'Juhi AI Companion',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: AppTheme.textWhite,

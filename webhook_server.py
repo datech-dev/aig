@@ -30,7 +30,7 @@ async def create_instamojo_payment_request(user_id: int, item_type: str = "chat_
         "X-Auth-Token": auth_token
     }
     
-    purpose = "Karin AI 1-Day Chat Pass" if item_type == "chat_pass" else "Karin AI 10 Image Credits"
+    purpose = "Juhi AI 1-Day Chat Pass" if item_type == "chat_pass" else "Juhi AI 10 Image Credits"
     redirect_url = f"{base_url}/checkout/instamojo/callback?user_id={user_id}"
     webhook_url = f"{base_url}/webhook/instamojo"
     
@@ -38,7 +38,7 @@ async def create_instamojo_payment_request(user_id: int, item_type: str = "chat_
         "purpose": purpose[:30],
         "amount": f"{amount_inr:.2f}",
         "buyer_name": f"User {user_id}",
-        "email": f"user_{user_id}@karin.ai",
+        "email": f"user_{user_id}@juhi.ai",
         "redirect_url": redirect_url,
         "webhook": webhook_url,
         "allow_repeated_payments": "False",
@@ -341,10 +341,10 @@ async def handle_get_config(request):
     Returns payment configuration and the Telegram bot username.
     """
     tg_app = request.app.get('tg_app')
-    bot_username = "KarinAICompanionBot"
+    bot_username = "JuhiAICompanionBot"
     if tg_app and tg_app.bot:
         try:
-            bot_username = tg_app.bot.username or "KarinAICompanionBot"
+            bot_username = tg_app.bot.username or "JuhiAICompanionBot"
         except Exception:
             pass
     return web.json_response({
@@ -385,8 +385,8 @@ async def handle_api_profile(request):
             database.setup_user(user_id, "app_user", "User")
             settings = database.get_user_settings(user_id)
             
-        persona_key = settings["active_persona"] if settings else "karin"
-        persona = config.PERSONAS.get(persona_key, config.PERSONAS["karin"])
+        persona_key = settings["active_persona"] if settings else "juhi"
+        persona = config.PERSONAS.get(persona_key, config.PERSONAS["juhi"])
         xp = settings["relationship_xp"] if settings else 0
         status = config.get_relationship_status(xp)
         
@@ -432,7 +432,7 @@ async def handle_api_history(request):
     try:
         user_id = int(user_id_str)
         settings = database.get_user_settings(user_id)
-        persona_key = settings["active_persona"] if settings else "karin"
+        persona_key = settings["active_persona"] if settings else "juhi"
         history = database.get_chat_history(user_id, persona_key)
         
         # Clean up history for app UI
@@ -488,8 +488,8 @@ async def handle_api_chat(request):
         # Memory extraction & setting lookup
         ai_engine.extract_and_save_user_memories(user_id, text)
         settings = database.get_user_settings(user_id)
-        persona_key = settings["active_persona"] if settings else "karin"
-        persona = config.PERSONAS.get(persona_key, config.PERSONAS["karin"])
+        persona_key = settings["active_persona"] if settings else "juhi"
+        persona = config.PERSONAS.get(persona_key, config.PERSONAS["juhi"])
         xp = settings["relationship_xp"] if settings else 0
         
         u_nick = settings["user_nickname"] if (settings and settings.get("user_nickname")) else "User"
@@ -674,14 +674,14 @@ async def handle_checkout_page(request):
     item_type = request.query.get("item_type", "chat_pass")
     
     title = "24-Hour Unlimited Chat Pass" if item_type == "chat_pass" else "10 Image Generation Credits"
-    desc = "Unlimited instant messages, voice notes & roleplays with Karin for 24 hours." if item_type == "chat_pass" else "Generate 10 custom NSFW images of Karin using Venice AI."
+    desc = "Unlimited instant messages, voice notes & roleplays with Juhi for 24 hours." if item_type == "chat_pass" else "Generate 10 custom NSFW images of Juhi using Venice AI."
 
     html_content = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Karin AI Checkout</title>
+    <title>Juhi AI Checkout</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
     <style>
@@ -708,7 +708,7 @@ async def handle_checkout_page(request):
 <body>
     <div class="checkout-card">
         <div class="avatar-wrap">
-            <img src="/assets/karin_avatar.jpg" onerror="this.src='https://raw.githubusercontent.com/telegramdesktop/tdesktop/dev/Telegram/Resources/art/bg.png'" alt="Karin">
+            <img src="/assets/juhi.png" onerror="this.src='https://raw.githubusercontent.com/telegramdesktop/tdesktop/dev/Telegram/Resources/art/bg.png'" alt="Juhi">
         </div>
         <h1 class="title">{title}</h1>
         <p class="subtitle">{desc}</p>
@@ -788,12 +788,12 @@ async def handle_checkout_page(request):
                         key: data.key,
                         amount: data.amount,
                         currency: data.currency || 'INR',
-                        name: "Karin AI Companion",
+                        name: "Juhi AI Companion",
                         description: itemType === 'chat_pass' ? "24-Hour Unlimited Chat Pass" : "10 Image Credits",
                         order_id: data.order_id,
                         prefill: {{
                             name: "User " + tgUserId,
-                            email: "user_" + tgUserId + "@karin.ai",
+                            email: "user_" + tgUserId + "@juhi.ai",
                             contact: "9999999999"
                         }},
                         notes: {{
@@ -825,8 +825,8 @@ async def handle_checkout_page(request):
                                             <div style="background: rgba(30, 41, 59, 0.85); backdrop-filter: blur(16px); border: 1px solid rgba(34, 197, 94, 0.4); border-radius: 24px; padding: 36px; max-width: 420px; width: 100%; text-align: center;">
                                                 <div style="font-size: 56px; margin-bottom: 16px;">💖</div>
                                                 <h1 style="font-size: 24px; font-weight: 700; margin-bottom: 12px; color: #4ade80;">Payment Successful!</h1>
-                                                <p style="font-size: 15px; color: #cbd5e1; margin-bottom: 24px;">Your access has been activated! Return to Telegram to chat with Karin.</p>
-                                                <button onclick="if(window.Telegram && window.Telegram.WebApp){{Telegram.WebApp.close();}}else{{window.location.href='https://t.me/KarinAICompanionBot';}}" style="width: 100%; background: linear-gradient(90deg, #22c55e 0%, #16a34a 100%); color: white; border: none; padding: 16px; border-radius: 14px; font-size: 16px; font-weight: 700; cursor: pointer;">Return to Telegram Chat</button>
+                                                <p style="font-size: 15px; color: #cbd5e1; margin-bottom: 24px;">Your access has been activated! Return to Telegram to chat with Juhi.</p>
+                                                <button onclick="if(window.Telegram && window.Telegram.WebApp){{Telegram.WebApp.close();}}else{{window.location.href='https://t.me/JuhiAICompanionBot';}}" style="width: 100%; background: linear-gradient(90deg, #22c55e 0%, #16a34a 100%); color: white; border: none; padding: 16px; border-radius: 14px; font-size: 16px; font-weight: 700; cursor: pointer;">Return to Telegram Chat</button>
                                             </div>
                                         </div>
                                     `;
@@ -926,7 +926,7 @@ async def handle_instamojo_callback(request):
         amount = row["amount"] if row else 5000
 
         tg_app = request.app.get('tg_app')
-        bot_username = "KarinAICompanionBot"
+        bot_username = "JuhiAICompanionBot"
         if tg_app and tg_app.bot:
             try:
                 bot_username = tg_app.bot.username or bot_username
@@ -964,7 +964,7 @@ async def handle_instamojo_callback(request):
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Payment Successful — Karin AI</title>
+    <title>Payment Successful — Juhi AI</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
@@ -981,7 +981,7 @@ async def handle_instamojo_callback(request):
     <div class="card">
         <div class="icon">💖</div>
         <h1>Payment Successful!</h1>
-        <p>You're back! Your access has been activated. Tap below to return to your chat with Karin.</p>
+        <p>You're back! Your access has been activated. Tap below to return to your chat with Juhi.</p>
         <button onclick="closeWebApp()" class="btn">Return to Telegram Chat</button>
     </div>
     <script>
@@ -1016,7 +1016,7 @@ async def handle_instamojo_callback(request):
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Payment Incomplete — Karin AI</title>
+    <title>Payment Incomplete — Juhi AI</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
@@ -1053,14 +1053,14 @@ async def handle_instamojo_callback(request):
             return web.Response(text=html_content, content_type="text/html")
     except Exception as err_cb:
         logger.error(f"Error in handle_instamojo_callback: {err_cb}")
-        bot_username = "KarinAICompanionBot"
+        bot_username = "JuhiAICompanionBot"
         bot_link = f"https://t.me/{bot_username}"
         html_content = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Payment Received — Karin AI</title>
+    <title>Payment Received — Juhi AI</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
         * {{ box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }}
@@ -1075,7 +1075,7 @@ async def handle_instamojo_callback(request):
     <div class="card">
         <div style="font-size: 48px; margin-bottom: 12px;">💖</div>
         <h1>Payment Callback Received</h1>
-        <p>Your payment request was received. Tap below to return to your chat with Karin.</p>
+        <p>Your payment request was received. Tap below to return to your chat with Juhi.</p>
         <button onclick="if(window.Telegram && window.Telegram.WebApp){{Telegram.WebApp.close();}}else{{window.location.href='{bot_link}';}}" class="btn">Return to Telegram</button>
     </div>
 </body>

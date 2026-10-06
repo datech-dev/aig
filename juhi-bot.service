@@ -1,5 +1,5 @@
 [Unit]
-Description=Karin AI Telegram Bot & Web Server
+Description=Juhi AI Telegram Bot & Web Server
 After=network.target
 
 [Service]

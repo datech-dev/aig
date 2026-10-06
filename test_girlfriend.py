@@ -36,7 +36,7 @@ class TestGirlfriendApp(unittest.TestCase):
     def test_01_config_loading(self):
         """Verify settings and level thresholds are defined correctly."""
         self.assertIsNotNone(config.PERSONAS)
-        self.assertIn("karin", config.PERSONAS)
+        self.assertIn("juhi", config.PERSONAS)
         self.assertNotIn("sakura", config.PERSONAS)  # Sakura should be removed
         self.assertIsNotNone(config.VENICE_IMAGE_MODEL)
         self.assertEqual(config.VENICE_IMAGE_MODEL, "lustify-v7")
@@ -58,7 +58,7 @@ class TestGirlfriendApp(unittest.TestCase):
         self.assertEqual(status_max["percent"], 100)
         
     def test_02_database_operations(self):
-        """Verify DB initialization, Karin profile updates, XP increments, and history logging."""
+        """Verify DB initialization, Juhi profile updates, XP increments, and history logging."""
         test_id = 999999999
         username = "test_user"
         first_name = "Tester"
@@ -66,22 +66,22 @@ class TestGirlfriendApp(unittest.TestCase):
         # Setup user
         database.setup_user(test_id, username, first_name)
         
-        # Verify user settings default to Karin
+        # Verify user settings default to Juhi
         settings = database.get_user_settings(test_id)
         self.assertIsNotNone(settings)
-        self.assertEqual(settings["active_persona"], "karin")
+        self.assertEqual(settings["active_persona"], "juhi")
         self.assertEqual(settings["user_nickname"], "Tester")
-        self.assertEqual(settings["ai_nickname"], "Karin")
+        self.assertEqual(settings["ai_nickname"], "Juhi")
         self.assertEqual(settings["relationship_xp"], 0)
         self.assertEqual(settings["relationship_level"], 1)
         
         # Test updating nicknames
-        database.update_nicknames(test_id, user_nickname="Honey", ai_nickname="Karin Baby")
+        database.update_nicknames(test_id, user_nickname="Honey", ai_nickname="Juhi Baby")
         settings = database.get_user_settings(test_id)
         self.assertEqual(settings["user_nickname"], "Honey")
-        self.assertEqual(settings["ai_nickname"], "Karin Baby")
+        self.assertEqual(settings["ai_nickname"], "Juhi Baby")
         
-        # Test XP increments for Karin
+        # Test XP increments for Juhi
         leveled_up, level, title = database.add_xp(test_id, amount=120)
         settings = database.get_user_settings(test_id)
         self.assertTrue(leveled_up)
@@ -89,10 +89,10 @@ class TestGirlfriendApp(unittest.TestCase):
         self.assertEqual(settings["relationship_xp"], 120)
         
         # Test chat messages logging
-        database.add_chat_message(test_id, "karin", "user", "I want you.")
-        database.add_chat_message(test_id, "karin", "assistant", "Hmph, really? 😳")
+        database.add_chat_message(test_id, "juhi", "user", "I want you.")
+        database.add_chat_message(test_id, "juhi", "assistant", "Hmph, really? 😳")
         
-        history = database.get_chat_history(test_id, "karin")
+        history = database.get_chat_history(test_id, "juhi")
         self.assertEqual(len(history), 2)
         self.assertEqual(history[0]["role"], "user")
         self.assertEqual(history[0]["content"], "I want you.")
@@ -100,8 +100,8 @@ class TestGirlfriendApp(unittest.TestCase):
         self.assertEqual(history[1]["content"], "Hmph, really? 😳")
         
         # Test clear logs
-        database.clear_chat_history(test_id, "karin")
-        history = database.get_chat_history(test_id, "karin")
+        database.clear_chat_history(test_id, "juhi")
+        history = database.get_chat_history(test_id, "juhi")
         self.assertEqual(len(history), 0)
         
     def test_03_ai_engine_initialization(self):
@@ -118,7 +118,7 @@ class TestGirlfriendApp(unittest.TestCase):
             ai_nickname=settings["ai_nickname"]
         )
         
-        self.assertIn("Karin", system_prompt)
+        self.assertIn("Juhi", system_prompt)
         self.assertIn("caring, warm, supportive", system_prompt)
         self.assertIn("Dummy", system_prompt)
         self.assertIn("GENERATE_IMAGE", system_prompt)  # Ensure tag guidelines are present
@@ -181,17 +181,17 @@ class TestGirlfriendApp(unittest.TestCase):
         
     def test_05_consistent_face_prompt(self):
         """Verify prompt combination logic avoids duplication and prepends appearance correctly."""
-        appearance = "Karin, a beautiful blonde girl"
+        appearance = "Juhi, a beautiful blonde girl"
         
         # Scenario 1: Prompt starts with character name
-        prompt_with_name = "Karin looking sexy in bedroom"
+        prompt_with_name = "Juhi looking sexy in bedroom"
         full_prompt = config.combine_appearance_and_prompt(appearance, prompt_with_name)
-        self.assertEqual(full_prompt, "Karin, a beautiful blonde girl, looking sexy in bedroom")
+        self.assertEqual(full_prompt, "Juhi, a beautiful blonde girl, looking sexy in bedroom")
         
         # Scenario 2: Prompt doesn't start with character name
         prompt_no_name = "looking naughty, smiling"
         full_prompt_no_name = config.combine_appearance_and_prompt(appearance, prompt_no_name)
-        self.assertEqual(full_prompt_no_name, "Karin, a beautiful blonde girl, looking naughty, smiling")
+        self.assertEqual(full_prompt_no_name, "Juhi, a beautiful blonde girl, looking naughty, smiling")
         
         # Scenario 3: Empty prompt
         full_prompt_empty = config.combine_appearance_and_prompt(appearance, "")
@@ -239,23 +239,23 @@ class TestGirlfriendApp(unittest.TestCase):
         from unittest.mock import MagicMock
         
         mock_choice = MagicMock()
-        mock_choice.message.content = "Karin, a beautiful blonde girl in a passionate embrace, full body shot, detailed scene"
+        mock_choice.message.content = "Juhi, a beautiful blonde girl in a passionate embrace, full body shot, detailed scene"
         
         mock_response = MagicMock()
         mock_response.choices = [mock_choice]
         
         mock_chat_create.return_value = mock_response
         
-        enhanced = asyncio.run(ai_engine.enhance_image_prompt("send me a photo like I am fucking you", "Karin, a beautiful blonde girl"))
-        self.assertEqual(enhanced, "Karin, a beautiful blonde girl in a passionate embrace, full body shot, detailed scene")
+        enhanced = asyncio.run(ai_engine.enhance_image_prompt("send me a photo like I am fucking you", "Juhi, a beautiful blonde girl"))
+        self.assertEqual(enhanced, "Juhi, a beautiful blonde girl in a passionate embrace, full body shot, detailed scene")
 
     @patch('ai_engine.client.chat.completions.create', new_callable=AsyncMock)
     def test_08_enhance_image_prompt_fallback(self, mock_chat_create):
         """Verify prompt enhancement falls back to combine_appearance_and_prompt on error."""
         import asyncio
         mock_chat_create.side_effect = Exception("API Error")
-        enhanced = asyncio.run(ai_engine.enhance_image_prompt("some user request", "Karin, a beautiful blonde girl"))
-        self.assertEqual(enhanced, "Karin, a beautiful blonde girl, some user request")
+        enhanced = asyncio.run(ai_engine.enhance_image_prompt("some user request", "Juhi, a beautiful blonde girl"))
+        self.assertEqual(enhanced, "Juhi, a beautiful blonde girl, some user request")
 
     def test_09_database_seed_generation(self):
         """Verify that a random persistent seed is generated and preserved in user settings."""
@@ -313,9 +313,9 @@ class TestGirlfriendApp(unittest.TestCase):
     def test_11_gif_selection_deduplication(self, mock_get_descs):
         """Verify choose_gif selection, de-duplication, and randomness rules."""
         mock_get_descs.return_value = {
-            "kiss-1": "karin kissing cheek",
-            "kiss-2": "karin kissing neck",
-            "cuddle": "karin cuddling with user",
+            "kiss-1": "juhi kissing cheek",
+            "kiss-2": "juhi kissing neck",
+            "cuddle": "juhi cuddling with user",
             "smile": "smiling happily"
         }
         test_id = 99993333
@@ -323,16 +323,16 @@ class TestGirlfriendApp(unittest.TestCase):
         
         # Test 1: First request for "kiss" matches one of the kiss options
         import bot
-        matched_1 = bot.choose_gif("kiss", test_id, "karin")
+        matched_1 = bot.choose_gif("kiss", test_id, "juhi")
         self.assertTrue(matched_1 in ["kiss-1", "kiss-2"])
         
         # Test 2: Next request for "kiss" should select the other kiss option to avoid duplication
-        matched_2 = bot.choose_gif("kiss", test_id, "karin")
+        matched_2 = bot.choose_gif("kiss", test_id, "juhi")
         self.assertTrue(matched_2 in ["kiss-1", "kiss-2"])
         self.assertNotEqual(matched_1, matched_2)
         
         # Test 3: Third request - since both have been sent, history filters them out but defaults back to prevent empty result
-        matched_3 = bot.choose_gif("kiss", test_id, "karin")
+        matched_3 = bot.choose_gif("kiss", test_id, "juhi")
         self.assertTrue(matched_3 in ["kiss-1", "kiss-2"])
 
     def test_12_user_orientation_pronouns(self):
@@ -351,10 +351,10 @@ class TestGirlfriendApp(unittest.TestCase):
         
         # Test 3: Construct prompt with lesbian orientation and verify female pronoun replacement
         system_prompt = config.construct_system_prompt(
-            persona_key="karin",
+            persona_key="juhi",
             relationship_xp=10,
             user_nickname="Girl",
-            ai_nickname="Karin",
+            ai_nickname="Juhi",
             user_orientation="lesbian",
             chat_mode="intimate"
         )
@@ -367,57 +367,57 @@ class TestGirlfriendApp(unittest.TestCase):
         test_id = 99995555
         database.setup_user(test_id, "rp_user", "RPUser")
         
-        # Verify initial active persona is 'karin'
+        # Verify initial active persona is 'juhi'
         active = database.get_active_persona_key(test_id)
-        self.assertEqual(active, "karin")
+        self.assertEqual(active, "juhi")
         
-        # Add some XP to 'karin'
+        # Add some XP to 'juhi'
         database.add_xp(test_id, amount=100)
-        settings_karin = database.get_user_settings(test_id)
-        self.assertEqual(settings_karin["relationship_xp"], 100)
+        settings_juhi = database.get_user_settings(test_id)
+        self.assertEqual(settings_juhi["relationship_xp"], 100)
         
-        # Verify settings sync to other Karin sub-personas (e.g. 'karin_long_drive')
-        database.update_active_persona(test_id, "karin_long_drive")
+        # Verify settings sync to other Juhi sub-personas (e.g. 'juhi_long_drive')
+        database.update_active_persona(test_id, "juhi_long_drive")
         settings_drive = database.get_user_settings(test_id)
         self.assertEqual(settings_drive["relationship_xp"], 100)
         self.assertEqual(settings_drive["user_nickname"], "RPUser")
         
-        # Update nickname on 'karin_long_drive'
-        database.update_nicknames(test_id, user_nickname="Darling", ai_nickname="Karin Baby")
+        # Update nickname on 'juhi_long_drive'
+        database.update_nicknames(test_id, user_nickname="Darling", ai_nickname="Juhi Baby")
         
-        # Verify nickname sync back to 'karin'
-        database.update_active_persona(test_id, "karin")
-        settings_karin_new = database.get_user_settings(test_id)
-        self.assertEqual(settings_karin_new["user_nickname"], "Darling")
-        self.assertEqual(settings_karin_new["ai_nickname"], "Karin Baby")
+        # Verify nickname sync back to 'juhi'
+        database.update_active_persona(test_id, "juhi")
+        settings_juhi_new = database.get_user_settings(test_id)
+        self.assertEqual(settings_juhi_new["user_nickname"], "Darling")
+        self.assertEqual(settings_juhi_new["ai_nickname"], "Juhi Baby")
         
         # Verify user orientation sync
         database.update_user_orientation(test_id, "lesbian")
         settings_lesbian = database.get_user_settings(test_id)
         self.assertEqual(settings_lesbian["user_orientation"], "lesbian")
         
-        database.update_active_persona(test_id, "karin_long_drive")
+        database.update_active_persona(test_id, "juhi_long_drive")
         settings_drive_lesbian = database.get_user_settings(test_id)
         self.assertEqual(settings_drive_lesbian["user_orientation"], "lesbian")
         
         # Verify chat history isolation
-        database.add_chat_message(test_id, "karin", "user", "Hello techie Karin")
-        database.add_chat_message(test_id, "karin_long_drive", "user", "Hello driver Karin")
+        database.add_chat_message(test_id, "juhi", "user", "Hello techie Juhi")
+        database.add_chat_message(test_id, "juhi_long_drive", "user", "Hello driver Juhi")
         
-        history_karin = database.get_chat_history(test_id, "karin")
-        history_drive = database.get_chat_history(test_id, "karin_long_drive")
+        history_juhi = database.get_chat_history(test_id, "juhi")
+        history_drive = database.get_chat_history(test_id, "juhi_long_drive")
         
-        self.assertEqual(len(history_karin), 1)
-        self.assertEqual(history_karin[0]["content"], "Hello techie Karin")
+        self.assertEqual(len(history_juhi), 1)
+        self.assertEqual(history_juhi[0]["content"], "Hello techie Juhi")
         self.assertEqual(len(history_drive), 1)
-        self.assertEqual(history_drive[0]["content"], "Hello driver Karin")
+        self.assertEqual(history_drive[0]["content"], "Hello driver Juhi")
 
     @patch("config.get_gif_descriptions")
     def test_14_nsfw_gif_filtering(self, mock_get_descs):
         """Verify that NSFW/explicit GIFs are blocked for users with less than 250 XP (25 messages), but allowed at 250+ XP."""
         mock_get_descs.return_value = {
-            "normal_kiss": "karin kissing cheek",
-            "boobs_touching": "karin touching her boobs",
+            "normal_kiss": "juhi kissing cheek",
+            "boobs_touching": "juhi touching her boobs",
         }
         
         test_id = 99996666
@@ -425,15 +425,15 @@ class TestGirlfriendApp(unittest.TestCase):
         
         # XP = 0: "boobs_touching" should be filtered.
         import bot
-        matched_l1 = bot.choose_gif("touching", test_id, "karin")
+        matched_l1 = bot.choose_gif("touching", test_id, "juhi")
         self.assertIsNone(matched_l1) # "boobs_touching" is filtered out
         
-        matched_l1_safe = bot.choose_gif("kiss", test_id, "karin")
+        matched_l1_safe = bot.choose_gif("kiss", test_id, "juhi")
         self.assertEqual(matched_l1_safe, "normal_kiss") # Safe GIF works
         
         # Upgrade user to 240 XP (24 messages) - still filtered
         database.add_xp(test_id, amount=240)
-        matched_l24 = bot.choose_gif("touching", test_id, "karin")
+        matched_l24 = bot.choose_gif("touching", test_id, "juhi")
         self.assertIsNone(matched_l24)
         
         # Upgrade user to 250 XP (25 messages) - allowed!
@@ -441,7 +441,7 @@ class TestGirlfriendApp(unittest.TestCase):
         settings = database.get_user_settings(test_id)
         self.assertEqual(settings["relationship_xp"], 250)
         
-        matched_l25 = bot.choose_gif("touching", test_id, "karin")
+        matched_l25 = bot.choose_gif("touching", test_id, "juhi")
         self.assertEqual(matched_l25, "boobs_touching")
 
     def test_15_user_tracking_and_payment_intents(self):
@@ -501,11 +501,11 @@ class TestGirlfriendApp(unittest.TestCase):
         self.assertEqual(database.get_chat_mode(u_id), "normal")
         
         # 2. Test system prompt construction for normal vs intimate modes
-        prompt_normal = config.construct_system_prompt("karin", 100, user_nickname="Honey", ai_nickname="Karin", chat_mode="normal")
+        prompt_normal = config.construct_system_prompt("juhi", 100, user_nickname="Honey", ai_nickname="Juhi", chat_mode="normal")
         self.assertIn("caring, warm, supportive", prompt_normal)
         self.assertIn("Do NOT engage in explicit sexual talk", prompt_normal)
         
-        prompt_intimate = config.construct_system_prompt("karin", 300, user_nickname="Honey", ai_nickname="Karin", chat_mode="intimate")
+        prompt_intimate = config.construct_system_prompt("juhi", 300, user_nickname="Honey", ai_nickname="Juhi", chat_mode="intimate")
         self.assertIn("loving, sweet girlfriend", prompt_intimate)
         
         # 3. Test memory bank operations
@@ -524,7 +524,7 @@ class TestGirlfriendApp(unittest.TestCase):
         self.assertEqual(len(database.get_user_memories(u_id)), 3)
         
         # Verify prompt memory injection
-        prompt_with_mem = config.construct_system_prompt("karin", 100, memories=mems)
+        prompt_with_mem = config.construct_system_prompt("juhi", 100, memories=mems)
         self.assertIn("THINGS YOU REMEMBER ABOUT THIS USER", prompt_with_mem)
         self.assertIn("Software Engineer", prompt_with_mem)
         

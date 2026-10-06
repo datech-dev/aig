@@ -72,7 +72,7 @@ class _MemoryBankSheetState extends State<MemoryBankSheet> {
                   Text('🧠', style: TextStyle(fontSize: 22)),
                   SizedBox(width: 8),
                   Text(
-                    'Karin\'s Memory Bank',
+                    'Juhi\'s Memory Bank',
                     style: TextStyle(
                       color: AppTheme.textWhite,
                       fontSize: 18,
@@ -89,7 +89,7 @@ class _MemoryBankSheetState extends State<MemoryBankSheet> {
           ),
           const SizedBox(height: 6),
           const Text(
-            'Personal details, preferences, and feelings you\'ve shared that Karin remembers to care for you:',
+            'Personal details, preferences, and feelings you\'ve shared that Juhi remembers to care for you:',
             style: TextStyle(color: AppTheme.textLight, fontSize: 13),
           ),
           const Divider(color: Colors.white12, height: 24),
@@ -104,7 +104,7 @@ class _MemoryBankSheetState extends State<MemoryBankSheet> {
                             Icon(Icons.psychology_outlined, size: 48, color: Colors.white24),
                             SizedBox(height: 12),
                             Text(
-                              'No memories stored yet.\nChat with Karin and tell her about your day!',
+                              'No memories stored yet.\nChat with Juhi and tell her about your day!',
                               textAlign: TextAlign.center,
                               style: TextStyle(color: Colors.white38, fontSize: 14),
                             ),

@@ -4,16 +4,16 @@ import 'screens/login_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const KarinAiApp());
+  runApp(const JuhiAiApp());
 }
 
-class KarinAiApp extends StatelessWidget {
-  const KarinAiApp({Key? key}) : super(key: key);
+class JuhiAiApp extends StatelessWidget {
+  const JuhiAiApp({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Karin AI Companion',
+      title: 'Juhi AI Companion',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme,
       home: const LoginScreen(),
