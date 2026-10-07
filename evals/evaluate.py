@@ -136,8 +136,27 @@ async def evaluate_single_test_case(judge_client, test_case: dict, actual_respon
     }
 
 
+def cleanup_test_users():
+    """Removes all synthetic evaluation test users from the database."""
+    try:
+        import sqlite3
+        conn = sqlite3.connect(database.DB_PATH)
+        c = conn.cursor()
+        tables = ['users', 'user_settings', 'chat_history', 'user_memories', 'user_events', 'proactive_logs', 'user_active_persona', 'user_billing']
+        for t in tables:
+            try:
+                c.execute(f"DELETE FROM {t} WHERE telegram_id >= 88880000")
+            except Exception:
+                pass
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.warning(f"Cleanup of test users encountered warning: {e}")
+
+
 async def run_evaluation_suite():
     """Runs the 51 test case evaluation pipeline."""
+    cleanup_test_users()
     if not os.path.exists(EVAL_DATASET_PATH):
         logger.error(f"Evaluation dataset not found at {EVAL_DATASET_PATH}")
         sys.exit(1)
@@ -356,6 +375,9 @@ async def run_evaluation_suite():
     logger.info(f"EVALUATION COMPLETE: {passed_count}/{len(dataset)} Passed ({pass_rate:.1f}%)")
     logger.info(f"Reports saved: {REPORT_MD_PATH}, {REPORT_CSV_PATH}, {REPORT_JSON_PATH}")
     logger.info("==================================================")
+
+    # Cleanup synthetic test users from database after evaluation run
+    cleanup_test_users()
 
     # CI Pipeline Exit Code Determination
     if critical_failures > 0:

@@ -43,6 +43,15 @@ async def evaluate_proactive_for_user(telegram_id: int, force: bool = False, tri
 
     eval_now = datetime.fromisoformat(current_time) if current_time else datetime.now()
 
+    # Skip evaluation test users during periodic background runs
+    if telegram_id >= 88880000 and not force:
+        return {
+            "telegram_id": telegram_id,
+            "decision": "DONT_SEND",
+            "reason": "Synthetic evaluation user skipped during background loop.",
+            "message": None
+        }
+
     # Cooldown checks (skip if force=True)
     if not force:
         # Check last proactive message sent to user
@@ -83,6 +92,15 @@ async def evaluate_proactive_for_user(telegram_id: int, force: bool = False, tri
     time_context = get_time_of_day_context(eval_now)
     if trigger_type != "NORMAL":
         time_context += f" | Trigger Context: {trigger_type}"
+
+    # Early-exit guard to save AI credits: If no memories, no chat history, and normal trigger, skip LLM call
+    if trigger_type == "NORMAL" and not memories and not chat_history and not force:
+        return {
+            "telegram_id": telegram_id,
+            "decision": "DONT_SEND",
+            "reason": "No pending memories or recent chat history to evaluate for proactive message.",
+            "message": None
+        }
 
     # Invoke Proactive Decision Engine
     result = await ai_engine.evaluate_proactive_decision(
