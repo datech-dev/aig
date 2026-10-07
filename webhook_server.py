@@ -190,7 +190,7 @@ async def handle_create_order(request):
     
     amount = data.get("amount")
     user_id = data.get("user_id")
-    item_type = data.get("item_type", "chat_pass")
+    item_type = data.get("item_type") or data.get("plan_type", "chat_pass")
     gateway_type = data.get("gateway") or config.PAYMENT_GATEWAY
     
     if not user_id:
@@ -289,7 +289,7 @@ async def handle_verify_payment(request):
     order_id = razorpay_order_id or data.get("payment_request_id") or data.get("order_id")
     payment_id = razorpay_payment_id or data.get("payment_id") or f"verify_{order_id}"
     user_id = data.get("user_id")
-    item_type = data.get("item_type", "chat_pass")
+    item_type = data.get("item_type") or data.get("plan_type", "chat_pass")
     
     if not order_id or not user_id:
         return web.json_response({"error": "Missing required fields"}, status=400)
@@ -425,7 +425,8 @@ async def handle_api_profile(request):
             "memory_count": len(memories),
             "is_subscribed": is_sub,
             "remaining_free_messages": rem_free,
-            "image_credits": billing.get("image_credits", 0)
+            "image_credits": billing.get("image_credits", 0),
+            "chat_expires_at": billing.get("chat_expires_at")
         })
     except Exception as e:
         logger.error(f"Error in handle_api_profile: {e}")
@@ -615,6 +616,48 @@ async def handle_api_memories(request):
             database.clear_user_memories(int(user_id))
             return web.json_response({"success": True, "message": "Memories cleared"})
         return web.json_response({"success": False, "error": "Invalid action or user_id"}, status=400)
+
+
+async def handle_api_device_token(request):
+    """API endpoint to save mobile push notification device token."""
+    try:
+        data = await request.json()
+        user_id = data.get("user_id")
+        device_token = data.get("device_token")
+        enabled = data.get("enabled", True)
+        device_type = data.get("device_type", "android")
+        
+        if not user_id or not device_token:
+            return web.json_response({"success": False, "error": "Missing user_id or device_token"}, status=400)
+            
+        database.save_device_token(int(user_id), device_token, device_type=device_type, notifications_enabled=1 if enabled else 0)
+        return web.json_response({"success": True, "message": "Device token registered"})
+    except Exception as e:
+        logger.error(f"Error in handle_api_device_token: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+
+async def handle_api_test_notification(request):
+    """API endpoint to trigger a sample proactive message for the user."""
+    try:
+        data = await request.json()
+        user_id = data.get("user_id")
+        if not user_id:
+            return web.json_response({"success": False, "error": "Missing user_id"}, status=400)
+            
+        settings = database.get_user_settings(int(user_id))
+        user_nickname = (settings.get("user_nickname") if settings else None) or "Sweetheart"
+        ai_nickname = (settings.get("ai_nickname") if settings else None) or "Juhi"
+        
+        message = f"Hey {user_nickname}! Just thinking of you while taking a coffee break... how has your day been so far? 💕"
+        return web.json_response({
+            "success": True,
+            "title": f"{ai_nickname} 💕",
+            "message": message
+        })
+    except Exception as e:
+        logger.error(f"Error in handle_api_test_notification: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
 
 
 async def handle_checkout_initiate(request):
@@ -1304,8 +1347,11 @@ async def start_webhook_server(application, port=8080):
     app.router.add_post('/api/mode/toggle', handle_api_toggle_mode)
     app.router.add_get('/api/memories', handle_api_memories)
     app.router.add_post('/api/memories', handle_api_memories)
+    app.router.add_post('/api/device-token', handle_api_device_token)
+    app.router.add_post('/api/notifications/test', handle_api_test_notification)
     
     app.router.add_static('/assets', 'assets')
+    app.router.add_static('/gifs', 'gifs')
     
     # Store reference to telegram bot application to allow sending messages in routes
     app['tg_app'] = application

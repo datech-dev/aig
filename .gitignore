@@ -2,3 +2,6 @@
 girlfriend.db
 __pycache__/
 *.pyc
+juhi_app/build/
+juhi_app/.dart_tool/
+assets/*.apk

@@ -245,6 +245,18 @@ def init_db():
         cursor.execute("ALTER TABLE user_billing ADD COLUMN last_free_message_reset TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
     except sqlite3.OperationalError:
         pass
+
+    # Mobile App push notification device tokens
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS device_tokens (
+            telegram_id INTEGER,
+            device_token TEXT PRIMARY KEY,
+            device_type TEXT DEFAULT 'android',
+            notifications_enabled INTEGER DEFAULT 1,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(telegram_id) REFERENCES users(telegram_id)
+        )
+    """)
         
     conn.commit()
     conn.close()
@@ -306,6 +318,31 @@ def get_active_persona_key(telegram_id):
     if row:
         return row["active_persona"]
     return "juhi"
+
+
+def save_device_token(telegram_id, device_token, device_type="android", notifications_enabled=1):
+    """Saves or updates a mobile device push notification token."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT OR REPLACE INTO device_tokens (telegram_id, device_token, device_type, notifications_enabled, updated_at)
+        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+    """, (telegram_id, device_token, device_type, 1 if notifications_enabled else 0))
+    conn.commit()
+    conn.close()
+
+
+def get_user_device_tokens(telegram_id):
+    """Retrieves active notification tokens for a user."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT device_token FROM device_tokens 
+        WHERE telegram_id = ? AND notifications_enabled = 1
+    """, (telegram_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [r[0] for r in rows]
 
 
 
