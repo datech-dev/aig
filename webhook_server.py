@@ -188,7 +188,7 @@ async def handle_create_order(request):
     except Exception:
         return web.json_response({"error": "Invalid JSON payload"}, status=400)
     
-    amount = data.get("amount", 5000)
+    amount = data.get("amount")
     user_id = data.get("user_id")
     item_type = data.get("item_type", "chat_pass")
     gateway_type = data.get("gateway") or config.PAYMENT_GATEWAY
@@ -198,7 +198,16 @@ async def handle_create_order(request):
         
     try:
         user_id = int(user_id)
-        amount_inr = float(amount) / 100.0 if int(amount) >= 100 else 50.0
+        if item_type in ("chat_pass_1week", "1week"):
+            amount_inr = 199.0
+        elif item_type in ("chat_pass_1month", "1month"):
+            amount_inr = 499.0
+        elif item_type in ("image_credits", "10_images"):
+            amount_inr = 49.0
+        elif item_type in ("chat_pass_1day", "1day", "chat_pass"):
+            amount_inr = 49.0
+        else:
+            amount_inr = float(amount) / 100.0 if amount and float(amount) >= 100 else 49.0
         amount_paise = int(amount_inr * 100)
     except ValueError:
         return web.json_response({"error": "Invalid user_id or amount"}, status=400)
@@ -673,8 +682,18 @@ async def handle_checkout_page(request):
     user_id_str = request.query.get("user_id", "")
     item_type = request.query.get("item_type", "chat_pass")
     
-    title = "24-Hour Unlimited Chat Pass" if item_type == "chat_pass" else "10 Image Generation Credits"
-    desc = "Unlimited instant messages, voice notes & roleplays with Juhi for 24 hours." if item_type == "chat_pass" else "Generate 10 custom NSFW images of Juhi using Venice AI."
+    ITEM_CONFIGS = {
+        "chat_pass": {"title": "1-Day Unlimited Chat Pass", "desc": "Unlimited instant messages & roleplays with Juhi for 24 hours.", "price": 49},
+        "chat_pass_1day": {"title": "1-Day Unlimited Chat Pass", "desc": "Unlimited instant messages & roleplays with Juhi for 24 hours.", "price": 49},
+        "chat_pass_1week": {"title": "1-Week Unlimited Chat Pass", "desc": "Unlimited instant messages & roleplays with Juhi for 7 days.", "price": 199},
+        "chat_pass_1month": {"title": "1-Month Unlimited Chat Pass", "desc": "Unlimited instant messages & roleplays with Juhi for 30 days.", "price": 499},
+        "image_credits": {"title": "10 Image Generation Credits", "desc": "Generate 10 custom photos of Juhi.", "price": 49},
+        "10_images": {"title": "10 Image Generation Credits", "desc": "Generate 10 custom photos of Juhi.", "price": 49},
+    }
+    cfg = ITEM_CONFIGS.get(item_type, ITEM_CONFIGS["chat_pass"])
+    title = cfg["title"]
+    desc = cfg["desc"]
+    price_inr = cfg["price"]
 
     html_content = f"""<!DOCTYPE html>
 <html lang="en">
@@ -715,14 +734,14 @@ async def handle_checkout_page(request):
         
         <div class="price-badge">
             <span class="price-label">Total Amount</span>
-            <span class="price-val">₹50</span>
+            <span class="price-val">₹{price_inr}</span>
         </div>
 
         <div id="error-box" class="error-box"></div>
 
         <button id="pay-btn" onclick="startPayment()" class="pay-btn">
             <div id="spinner" class="spinner"></div>
-            <span id="btn-text">Pay ₹50 with Razorpay</span>
+            <span id="btn-text">Pay ₹{price_inr} with Razorpay</span>
         </button>
 
         <a id="sandbox-btn" style="display:none; width: 100%; background: rgba(234, 179, 8, 0.15); border: 1px solid rgba(234, 179, 8, 0.4); color: #fde047; padding: 14px; border-radius: 14px; font-size: 14px; font-weight: 600; text-decoration: none; margin-top: 12px; box-sizing: border-box;" href="#">🧪 Test in Sandbox Mode</a>
@@ -735,6 +754,7 @@ async def handle_checkout_page(request):
     <script>
         let tgUserId = "{user_id_str}";
         let itemType = "{item_type}";
+        let priceInr = {price_inr};
 
         // Initialize Telegram WebApp API
         if (window.Telegram && window.Telegram.WebApp) {{
@@ -770,7 +790,7 @@ async def handle_checkout_page(request):
                     method: 'POST',
                     headers: {{ 'Content-Type': 'application/json' }},
                     body: JSON.stringify({{
-                        amount: 5000,
+                        amount: priceInr * 100,
                         currency: 'INR',
                         user_id: tgUserId,
                         item_type: itemType
@@ -781,7 +801,7 @@ async def handle_checkout_page(request):
                 
                 if (data.gateway === 'razorpay' && data.key) {{
                     spinner.style.display = 'none';
-                    btnText.innerText = 'Pay ₹50 with Razorpay';
+                    btnText.innerText = `Pay ₹${{priceInr}} with Razorpay`;
                     payBtn.disabled = false;
                     
                     const options = {{
@@ -789,7 +809,7 @@ async def handle_checkout_page(request):
                         amount: data.amount,
                         currency: data.currency || 'INR',
                         name: "Juhi AI Companion",
-                        description: itemType === 'chat_pass' ? "24-Hour Unlimited Chat Pass" : "10 Image Credits",
+                        description: "{title}",
                         order_id: data.order_id,
                         prefill: {{
                             name: "User " + tgUserId,
@@ -836,7 +856,7 @@ async def handle_checkout_page(request):
                              }} catch (vErr) {{
                                 payBtn.disabled = false;
                                 spinner.style.display = 'none';
-                                btnText.innerText = 'Pay ₹50 with Razorpay';
+                                btnText.innerText = `Pay ₹${{priceInr}} with Razorpay`;
                                 errBox.innerText = vErr.message;
                                 errBox.style.display = 'block';
                             }}
@@ -845,7 +865,7 @@ async def handle_checkout_page(request):
                             ondismiss: function () {{
                                 payBtn.disabled = false;
                                 spinner.style.display = 'none';
-                                btnText.innerText = 'Pay ₹50 with Razorpay';
+                                btnText.innerText = `Pay ₹${{priceInr}} with Razorpay`;
                                 fetch('/api/payment-cancelled', {{
                                     method: 'POST',
                                     headers: {{ 'Content-Type': 'application/json' }},
@@ -863,7 +883,7 @@ async def handle_checkout_page(request):
                         Telegram.WebApp.openLink(data.pay_url);
                         payBtn.disabled = false;
                         spinner.style.display = 'none';
-                        btnText.innerText = 'Pay ₹50 via Instamojo';
+                        btnText.innerText = `Pay ₹${{priceInr}} via Instamojo`;
                     }} else {{
                         window.location.href = data.pay_url;
                     }}
@@ -875,7 +895,7 @@ async def handle_checkout_page(request):
             }} catch (err) {{
                 payBtn.disabled = false;
                 spinner.style.display = 'none';
-                btnText.innerText = 'Pay ₹50';
+                btnText.innerText = `Pay ₹${{priceInr}}`;
                 errBox.innerText = err.message || "Failed to initiate payment gateway.";
                 errBox.style.display = 'block';
                 

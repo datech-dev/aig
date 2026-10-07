@@ -980,10 +980,14 @@ def unlock_paid_access_idempotent(telegram_id, order_id, payment_id, item_type="
     mark_payment_intent_completed(telegram_id, payment_link_id=order_id or payment_id, item_type=item_type)
 
     expiry = None
-    if item_type == "image_credits":
+    if item_type in ("image_credits", "10_images"):
         grant_image_credits(telegram_id, amount=10)
+    elif item_type in ("chat_pass_1week", "1week"):
+        expiry = grant_chat_pass(telegram_id, hours=168)  # 1 week (7 days)
+    elif item_type in ("chat_pass_1month", "1month"):
+        expiry = grant_chat_pass(telegram_id, hours=720)  # 1 month (30 days)
     else:
-        expiry = grant_chat_pass(telegram_id, hours=CHAT_PASS_DURATION_HOURS)
+        expiry = grant_chat_pass(telegram_id, hours=CHAT_PASS_DURATION_HOURS)  # 1 day (24 hours)
 
     # Log required lifecycle events
     log_payment_event(

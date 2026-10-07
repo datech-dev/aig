@@ -43,35 +43,33 @@ USER_STATES = {}
 
 def get_chat_paywall_keyboard(user_id=None):
     base_url = config.WEB_CHECKOUT_URL.rstrip('/')
-    if user_id:
-        pay_url = f"{base_url}/checkout?user_id={user_id}&item_type=chat_pass"
-    else:
-        pay_url = f"{base_url}/checkout?item_type=chat_pass"
+    u_param = f"user_id={user_id}&" if user_id else ""
+    
+    url_1day = f"{base_url}/checkout?{u_param}item_type=chat_pass_1day"
+    url_1week = f"{base_url}/checkout?{u_param}item_type=chat_pass_1week"
+    url_1month = f"{base_url}/checkout?{u_param}item_type=chat_pass_1month"
+    url_images = f"{base_url}/checkout?{u_param}item_type=image_credits"
 
     keyboard = [
-        [
-            InlineKeyboardButton("🌐 Open in Browser (Direct UPI / GPay / Card)", url=pay_url)
-        ],
-        [
-            InlineKeyboardButton("🔙 View Profile / Balance", callback_data="profile_back")
-        ]
+        [InlineKeyboardButton("⚡ 1 Day Pass — ₹49", url=url_1day)],
+        [InlineKeyboardButton("🚀 1 Week Pass — ₹199", url=url_1week)],
+        [InlineKeyboardButton("💎 1 Month Pass — ₹499", url=url_1month)],
+        [InlineKeyboardButton("🖼️ 10 Image Credits — ₹49", url=url_images)],
+        [InlineKeyboardButton("🔙 View Profile / Balance", callback_data="profile_back")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
 def get_image_paywall_keyboard(user_id=None):
     base_url = config.WEB_CHECKOUT_URL.rstrip('/')
-    if user_id:
-        pay_url = f"{base_url}/checkout?user_id={user_id}&item_type=image_credits"
-    else:
-        pay_url = f"{base_url}/checkout?item_type=image_credits"
+    u_param = f"user_id={user_id}&" if user_id else ""
+    
+    url_images = f"{base_url}/checkout?{u_param}item_type=image_credits"
+    url_1day = f"{base_url}/checkout?{u_param}item_type=chat_pass_1day"
 
     keyboard = [
-        [
-            InlineKeyboardButton("🌐 Open in Browser (Direct UPI / GPay / Card)", url=pay_url)
-        ],
-        [
-            InlineKeyboardButton("🔙 View Profile / Balance", callback_data="profile_back")
-        ]
+        [InlineKeyboardButton("🖼️ 10 Image Credits — ₹49", url=url_images)],
+        [InlineKeyboardButton("⚡ 1 Day Unlimited Pass — ₹49", url=url_1day)],
+        [InlineKeyboardButton("🔙 View Profile / Balance", callback_data="profile_back")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -230,7 +228,7 @@ async def draw_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         paywall_text = (
             f"📸 <b>IMAGE GENERATION LOCKED</b> 📸\n\n"
             f"You need image credits to generate custom drawings.\n"
-            f"Purchase 10 image credits for ₹50 to start drawing again!"
+            f"Purchase 10 image credits for ₹49 to start drawing again!"
         )
         await update.message.reply_text(
             paywall_text,
@@ -479,9 +477,12 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
     # Paywall / Purchase callbacks
     elif data == "buy_chat_menu":
         paywall_text = (
-            f"💬 <b>CHAT PASS SUBSCRIPTION</b> 💬\n\n"
-            f"Get unlimited messaging with Juhi for <b>1 day (24 hours)</b> for only <b>₹50</b>!\n\n"
-            f"Click the button below to purchase or simulate payment."
+            f"💬 <b>UNLIMITED CHAT PASS</b> 💬\n\n"
+            f"Get unlimited messaging & roleplays with Juhi:\n"
+            f"• <b>1 Day Pass:</b> ₹49\n"
+            f"• <b>1 Week Pass:</b> ₹199\n"
+            f"• <b>1 Month Pass:</b> ₹499\n\n"
+            f"Select a subscription plan below:"
         )
         await query.message.edit_text(
             paywall_text,
@@ -493,8 +494,8 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         paywall_text = (
             f"📸 <b>IMAGE GENERATION CREDITS</b> 📸\n\n"
             f"Generate custom images of Juhi with her `/draw` command and dynamic selfie reactions!\n\n"
-            f"Purchase <b>10 images</b> for only <b>₹50</b>.\n\n"
-            f"Click the button below to purchase or simulate payment."
+            f"Purchase <b>10 images</b> for only <b>₹49</b>.\n\n"
+            f"Select a package below to purchase:"
         )
         await query.message.edit_text(
             paywall_text,

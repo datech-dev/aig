@@ -7,7 +7,7 @@ load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ADMIN_TELEGRAM_ID = os.getenv("ADMIN_TELEGRAM_ID")
 VENICE_API_KEY = os.getenv("VENICE_API_KEY")
-VENICE_MODEL = os.getenv("VENICE_MODEL", "e2ee-qwen-2-5-7b-p")
+VENICE_MODEL = os.getenv("VENICE_MODEL", "aion-labs-aion-3-5-mini")
 VENICE_IMAGE_MODEL = os.getenv("VENICE_IMAGE_MODEL", "fluently-xl")
 
 # Payment Gateway Credentials (Razorpay & Instamojo)
@@ -22,12 +22,19 @@ INSTAMOJO_ENDPOINT = os.getenv("INSTAMOJO_ENDPOINT", "https://www.instamojo.com/
 WEB_CHECKOUT_URL = os.getenv("WEB_CHECKOUT_URL", "https://zetagirl.zetalink.cloud")
 
 
-# Paywall Configuration Constants
+# Paywall Configuration Constants & Subscription Tiers
 FREE_MESSAGE_LIMIT = 10
 INITIAL_IMAGE_CREDITS = 2
-CHAT_PASS_PRICE_INR = 50
+
+# Updated Pricing Tiers
+CHAT_PASS_1DAY_PRICE_INR = 49      # 1 day - 49 rupees
+CHAT_PASS_1WEEK_PRICE_INR = 199    # 1 week - 199 rupees
+CHAT_PASS_1MONTH_PRICE_INR = 499   # 1 month - 499 rupees
+IMAGE_PASS_PRICE_INR = 49          # 10 images - 49 rupees
+
+# Legacy compatibility constants
+CHAT_PASS_PRICE_INR = 49
 CHAT_PASS_DURATION_HOURS = 24
-IMAGE_PASS_PRICE_INR = 50
 IMAGE_PASS_CREDITS = 10
 
 # Relationship Level Definitions
