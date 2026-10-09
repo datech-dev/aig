@@ -23,7 +23,7 @@ WEB_CHECKOUT_URL = os.getenv("WEB_CHECKOUT_URL", "https://zetagirl.zetalink.clou
 
 
 # Paywall Configuration Constants & Subscription Tiers
-FREE_MESSAGE_LIMIT = 10
+FREE_MESSAGE_LIMIT = 50
 INITIAL_IMAGE_CREDITS = 2
 
 # Updated Pricing Tiers

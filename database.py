@@ -1,8 +1,13 @@
 import sqlite3
 import os
 import re
+import json
+import logging
 from datetime import datetime, timedelta
 from config import PERSONAS, get_relationship_status, INITIAL_IMAGE_CREDITS, CHAT_PASS_DURATION_HOURS
+
+logger = logging.getLogger(__name__)
+
 
 DB_PATH = "girlfriend.db"
 
@@ -302,6 +307,20 @@ def init_db():
             confidence REAL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY(telegram_id) REFERENCES users(telegram_id)
+        )
+    """)
+
+    # User Behavior & Engagement Analytics table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS user_analytics_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            event_name TEXT NOT NULL,
+            event_category TEXT DEFAULT 'engagement',
+            platform TEXT DEFAULT 'android_app',
+            metadata TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(user_id) REFERENCES users(telegram_id)
         )
     """)
         
@@ -1703,6 +1722,232 @@ def save_user_emotion_preferences(preferences):
     """Saves user emotion preferences to repository."""
     repo = get_emotion_repository()
     return repo.save_preferences(preferences)
+
+
+# ── User Behavior & Event Analytics Tracking ─────────────────────────────
+
+def log_user_analytics_event(user_id: int, event_name: str, event_category: str = "engagement", platform: str = "android_app", metadata: dict = None):
+    """Logs any user action, session event, payment attempt, or engagement signal."""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        meta_str = json.dumps(metadata) if metadata else None
+        cursor.execute("""
+            INSERT INTO user_analytics_events (user_id, event_name, event_category, platform, metadata, created_at)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        """, (int(user_id), str(event_name), str(event_category), str(platform), meta_str))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        logger.error(f"Error logging analytics event for user {user_id}: {e}")
+        return False
+
+
+def get_user_behavior_analytics_overview():
+    """Calculates high-level summary KPIs and funnels across all users."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # 1. Total users
+    cursor.execute("SELECT COUNT(*) as total_users FROM users")
+    total_users = cursor.fetchone()["total_users"] or 0
+    
+    # 2. Total messages sent by users
+    cursor.execute("SELECT COUNT(*) as total_msgs FROM chat_history WHERE role = 'user'")
+    total_user_msgs = cursor.fetchone()["total_msgs"] or 0
+    
+    # 3. Total AI replies generated
+    cursor.execute("SELECT COUNT(*) as total_replies FROM chat_history WHERE role = 'assistant'")
+    total_ai_replies = cursor.fetchone()["total_replies"] or 0
+    
+    # 4. Paywall funnel metrics
+    # A. Users who used >= 50 messages or had paywall shown
+    cursor.execute("SELECT COUNT(DISTINCT user_id) as c FROM user_analytics_events WHERE event_name = 'paywall_hit'")
+    paywall_hits = cursor.fetchone()["c"] or 0
+    
+    # B. Users who initiated payment (clicked pay / created order)
+    cursor.execute("SELECT COUNT(DISTINCT user_id) as c FROM user_analytics_events WHERE event_name IN ('pay_initiated', 'payment_order_created', 'pay_button_clicked')")
+    pay_initiated_users = cursor.fetchone()["c"] or 0
+    
+    # C. Users who completed payment
+    cursor.execute("SELECT COUNT(DISTINCT user_id) as c FROM user_analytics_events WHERE event_name IN ('payment_success', 'access_unlocked')")
+    paid_users = cursor.fetchone()["c"] or 0
+    
+    # 5. Total revenue (paid payments)
+    cursor.execute("SELECT SUM(amount) as total_paise FROM payments WHERE status = 'SUCCESS'")
+    total_revenue_inr = ((cursor.fetchone()["total_paise"] or 0) / 100.0)
+    
+    # 6. Top events breakdown
+    cursor.execute("""
+        SELECT event_name, COUNT(*) as count 
+        FROM user_analytics_events 
+        GROUP BY event_name 
+        ORDER BY count DESC LIMIT 15
+    """)
+    events_breakdown = [dict(r) for r in cursor.fetchall()]
+    
+    conn.close()
+    
+    avg_msgs = round(total_user_msgs / max(1, total_users), 1)
+    conversion_rate = round((paid_users / max(1, pay_initiated_users)) * 100, 1) if pay_initiated_users > 0 else 0.0
+    paywall_to_click_rate = round((pay_initiated_users / max(1, paywall_hits)) * 100, 1) if paywall_hits > 0 else 0.0
+
+    return {
+        "total_users": total_users,
+        "total_user_messages": total_user_msgs,
+        "total_ai_replies": total_ai_replies,
+        "avg_messages_per_user": avg_msgs,
+        "free_message_limit": 50,
+        "funnel": {
+            "users_reached_paywall": paywall_hits,
+            "users_tried_to_pay": pay_initiated_users,
+            "users_paid_successfully": paid_users,
+            "paywall_to_pay_click_percent": paywall_to_click_rate,
+            "checkout_conversion_percent": conversion_rate,
+        },
+        "total_revenue_inr": total_revenue_inr,
+        "top_events": events_breakdown,
+    }
+
+
+def get_user_behavior_list(limit: int = 100, offset: int = 0):
+    """Retrieves rich behavior stats for every user."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT 
+            u.telegram_id as user_id,
+            u.username,
+            u.first_name,
+            u.created_at as registered_at,
+            b.free_messages_used,
+            b.image_credits,
+            b.chat_expires_at,
+            (CASE WHEN b.chat_expires_at IS NOT NULL AND b.chat_expires_at > CURRENT_TIMESTAMP THEN 1 ELSE 0 END) as is_subscribed,
+            (SELECT COUNT(*) FROM chat_history ch WHERE ch.telegram_id = u.telegram_id AND ch.role = 'user') as messages_sent,
+            (SELECT COUNT(*) FROM chat_history ch WHERE ch.telegram_id = u.telegram_id AND ch.role = 'assistant') as replies_received,
+            (SELECT MAX(timestamp) FROM chat_history ch WHERE ch.telegram_id = u.telegram_id) as last_active_at,
+            (SELECT COUNT(*) FROM user_analytics_events ae WHERE ae.user_id = u.telegram_id AND ae.event_name IN ('pay_initiated', 'payment_order_created', 'pay_button_clicked')) as payment_attempts,
+            (SELECT COUNT(*) FROM payments p WHERE (p.telegram_id = u.telegram_id OR p.user_id = u.telegram_id) AND p.status = 'SUCCESS') as successful_payments
+        FROM users u
+        LEFT JOIN user_billing b ON u.telegram_id = b.telegram_id
+        ORDER BY last_active_at DESC NULLS LAST, registered_at DESC
+        LIMIT ? OFFSET ?
+    """, (limit, offset))
+    
+    rows = cursor.fetchall()
+    conn.close()
+    
+    users = []
+    for r in rows:
+        d = dict(r)
+        d["hit_paywall"] = (d["free_messages_used"] or 0) >= 50 and not d["is_subscribed"]
+        d["tried_to_pay"] = (d["payment_attempts"] or 0) > 0
+        users.append(d)
+    return users
+
+
+def get_user_full_journey(user_id: int):
+    """Retrieves full chronological journey of a user: messages, replies, emotional state, events, and payments."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # 1. User Info & Settings
+    cursor.execute("SELECT * FROM users WHERE telegram_id = ?", (user_id,))
+    user_row = cursor.fetchone()
+    user_info = dict(user_row) if user_row else {"user_id": user_id}
+    
+    cursor.execute("SELECT * FROM user_settings WHERE telegram_id = ?", (user_id,))
+    settings_row = cursor.fetchone()
+    settings = dict(settings_row) if settings_row else {}
+    
+    cursor.execute("SELECT * FROM user_billing WHERE telegram_id = ?", (user_id,))
+    billing_row = cursor.fetchone()
+    billing = dict(billing_row) if billing_row else {}
+    
+    # 2. Conversation History
+    cursor.execute("""
+        SELECT id, role, message, timestamp 
+        FROM chat_history 
+        WHERE telegram_id = ? 
+        ORDER BY timestamp ASC
+    """, (user_id,))
+    chat_log = [dict(r) for r in cursor.fetchall()]
+    
+    # 3. Analytics & Behavior Events
+    cursor.execute("""
+        SELECT id, event_name, event_category, platform, metadata, created_at 
+        FROM user_analytics_events 
+        WHERE user_id = ? 
+        ORDER BY created_at ASC
+    """, (user_id,))
+    events_log = [dict(r) for r in cursor.fetchall()]
+    
+    # 4. Payment attempts
+    cursor.execute("""
+        SELECT id, order_id, payment_id, amount, status, payment_gateway, payment_method, failure_reason, created_at, paid_at 
+        FROM payments 
+        WHERE telegram_id = ? OR user_id = ? 
+        ORDER BY created_at DESC
+    """, (user_id, user_id))
+    payments_log = [dict(r) for r in cursor.fetchall()]
+    
+    # 5. Memories
+    cursor.execute("SELECT category, memory_text, created_at FROM user_memories WHERE telegram_id = ?", (user_id,))
+    memories = [dict(r) for r in cursor.fetchall()]
+    
+    conn.close()
+    
+    return {
+        "user_info": user_info,
+        "settings": settings,
+        "billing": billing,
+        "stats": {
+            "total_messages": sum(1 for m in chat_log if m["role"] == "user"),
+            "total_replies": sum(1 for m in chat_log if m["role"] == "assistant"),
+            "free_messages_used": billing.get("free_messages_used", 0),
+            "free_messages_remaining": max(0, 50 - (billing.get("free_messages_used", 0))),
+            "hit_paywall": billing.get("free_messages_used", 0) >= 50,
+            "tried_to_pay": len(payments_log) > 0 or any(e["event_name"] in ("pay_initiated", "pay_button_clicked") for e in events_log),
+            "has_active_subscription": billing.get("chat_expires_at") is not None,
+        },
+        "chat_history": chat_log,
+        "analytics_events": events_log,
+        "payment_history": payments_log,
+        "extracted_memories": memories,
+    }
+
+
+def export_user_behavior_csv(filepath: str = None):
+    """Exports all user behavior summary and messages into CSV files for data science / spreadsheet analysis."""
+    import csv
+    import os
+    from datetime import datetime
+    
+    if not filepath:
+        os.makedirs("assets", exist_ok=True)
+        today = datetime.now().strftime("%Y-%m-%d")
+        filepath = f"assets/user_behavior_report_{today}.csv"
+        
+    users = get_user_behavior_list(limit=10000, offset=0)
+    
+    fieldnames = [
+        "user_id", "username", "first_name", "registered_at", "last_active_at",
+        "messages_sent", "replies_received", "free_messages_used", "hit_paywall",
+        "tried_to_pay", "payment_attempts", "successful_payments", "is_subscribed"
+    ]
+    
+    with open(filepath, mode="w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for u in users:
+            row = {k: u.get(k) for k in fieldnames}
+            writer.writerow(row)
+            
+    return filepath, len(users)
+
 
 
 
