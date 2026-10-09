@@ -469,6 +469,42 @@ class TestEmotionEngine(unittest.IsolatedAsyncioTestCase):
         self.assertIn("DYNAMIC EMOTION & BEHAVIOR ENGINE", system_msg)
         self.assertIn("Possessiveness", system_msg)
 
+    # ---------------------------------------------------------
+    # Scenario 16: Level 2 Friends mode with rival girl / crush mention
+    # ---------------------------------------------------------
+    @patch("ai_engine.client.chat.completions.create", new_callable=AsyncMock)
+    async def test_16_level_2_crush_rival_possessiveness(self, mock_chat_create):
+        import ai_engine
+        mock_chat_create.return_value = MagicMock(
+            choices=[
+                MagicMock(
+                    message=MagicMock(content="wait... she's crushing on you? 👀 should i be jealous? 😤")
+                )
+            ]
+        )
+
+        test_user = 888123
+        reply = await ai_engine.generate_response(
+            persona_key="juhi",
+            relationship_xp=150, # Level 2 (Friends)
+            user_nickname="Dhinu",
+            ai_nickname="Karin",
+            chat_history=[],
+            user_message="I think she is crushing on me",
+            chat_mode="normal",
+            user_id=test_user,
+        )
+
+        self.assertIsNotNone(reply)
+        call_args = mock_chat_create.call_args
+        messages_sent = call_args.kwargs.get("messages", [])
+        system_msg = next((m["content"] for m in messages_sent if m["role"] == "system"), "")
+        
+        # Verify Level 2 and rival instructions are in the system prompt
+        self.assertIn("Level 2 (Friends)", system_msg)
+        self.assertIn("NEVER an indifferent third-party matchmaker", system_msg)
+        self.assertIn("playful_jealousy", system_msg)
+
 
 if __name__ == "__main__":
     unittest.main()

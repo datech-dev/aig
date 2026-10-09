@@ -103,22 +103,36 @@ class EmotionDetector(EmotionDetectorProtocol):
             reason_codes.append("anger_triggered_playful")
             detected_event = "playful_teasing"
 
-        # 2. Check Possessiveness & Clinginess triggers
-        if any(w in text for w in ["other girl", "my female coworker", "pretty girl", "she said", "another friend"]):
+        # 2. Check Possessiveness & Clinginess triggers (Rival girl, crush, female coworker, dating)
+        other_girl_keywords = [
+            "other girl", "another girl", "crush", "crushing", "she is", "she was", "she likes",
+            "my female coworker", "pretty girl", "she said", "another friend", "dating", "talked to a girl",
+            "talking to a girl", "she asked", "she texted", "ex girlfriend", "ex", "cute girl",
+            "she looked", "she smiled", "she is important", "she is behaved", "she proposed"
+        ]
+        if any(w in text for w in other_girl_keywords):
             proposed.append(ProposedEmotionChange(
                 emotion_id="jealousy",
                 sub_emotion="cute_suspicion",
-                delta_intensity=0.30,
-                confidence=0.85,
-                reason="mention_of_other_female",
+                delta_intensity=0.35,
+                confidence=0.90,
+                reason="mention_of_other_female_or_crush",
                 trigger_type="conversational_cue",
             ))
             proposed.append(ProposedEmotionChange(
                 emotion_id="possessiveness",
                 sub_emotion="playful_jealousy",
-                delta_intensity=0.25,
-                confidence=0.80,
+                delta_intensity=0.35,
+                confidence=0.90,
                 reason="territorial_instinct",
+                trigger_type="conversational_cue",
+            ))
+            proposed.append(ProposedEmotionChange(
+                emotion_id="anger",
+                sub_emotion="playful_anger",
+                delta_intensity=0.20,
+                confidence=0.80,
+                reason="feisty_pout_at_rival",
                 trigger_type="conversational_cue",
             ))
             reason_codes.append("possessiveness_triggered_other_person")
