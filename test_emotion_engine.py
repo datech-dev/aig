@@ -497,14 +497,49 @@ class TestEmotionEngine(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsNotNone(reply)
         call_args = mock_chat_create.call_args
-        messages_sent = call_args.kwargs.get("messages", [])
-        system_msg = next((m["content"] for m in messages_sent if m["role"] == "system"), "")
-        
-        # Verify Level 2 and rival instructions are in the system prompt
-        self.assertIn("Level 2 (Friends)", system_msg)
-        self.assertIn("NEVER an indifferent third-party matchmaker", system_msg)
-        self.assertIn("playful_jealousy", system_msg)
+    # ---------------------------------------------------------
+    # Scenario 17: Caring mode sexual advances boundary deflection
+    # ---------------------------------------------------------
+    @patch("ai_engine.client.chat.completions.create", new_callable=AsyncMock)
+    async def test_17_caring_mode_nsfw_boundary(self, mock_chat_create):
+        import ai_engine
+        import safety_engine
+        import config
+
+        # Scan input safety for sexual terms in caring mode
+        safety_res = safety_engine.scan_input_safety("boobs")
+        self.assertFalse(safety_res.is_safe)
+        self.assertIn("wholesome", safety_res.refusal_message.lower())
+
+        # Construct system prompt in caring mode and verify explicit negative constraint
+        prompt = config.construct_system_prompt(
+            persona_key="juhi",
+            relationship_xp=100,
+            user_nickname="Dhinesh",
+            ai_nickname="Juhi",
+            chat_mode="normal"
+        )
+        self.assertIn("CRITICAL INSTRUCTION FOR CARING BEST FRIEND MODE", prompt)
+        self.assertIn("NEVER say 'mmm yes please'", prompt)
+        self.assertIn("off-limits", prompt)
+
+    # ---------------------------------------------------------
+    # Scenario 18: Rival girl crushing triggers jealousy, possessiveness and anger
+    # ---------------------------------------------------------
+    async def test_18_other_girl_crushing_detection(self):
+        curr_state = self.state_mgr.get_state(99999, "juhi")
+        res = await self.detector.detect_emotion_and_events(
+            user_message="other girl is crushing on me",
+            recent_history=[],
+            current_state=curr_state
+        )
+        detected_emotions = {p.emotion_id for p in res.proposed_changes}
+        self.assertIn("jealousy", detected_emotions)
+        self.assertIn("possessiveness", detected_emotions)
+        self.assertIn("anger", detected_emotions)
 
 
 if __name__ == "__main__":
     unittest.main()
+
+

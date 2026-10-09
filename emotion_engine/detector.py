@@ -49,7 +49,7 @@ class EmotionDetector(EmotionDetectorProtocol):
         # 1. First run fast deterministic trigger analysis
         rule_result = self._detect_via_rules(user_message, current_state, preferences)
 
-        # 2. If LLM client is configured, we can refine or enrich analysis
+        # 2. If LLM client is configured, we can enrich analysis
         if self.llm_client and self.model_name:
             try:
                 llm_result = await self._detect_via_llm(
@@ -59,7 +59,20 @@ class EmotionDetector(EmotionDetectorProtocol):
                     memories=memories,
                 )
                 if llm_result and llm_result.proposed_changes:
-                    return llm_result
+                    # Merge LLM changes with rule-based changes (rules take priority for detected keys)
+                    existing_emotions = {p.emotion_id for p in rule_result.proposed_changes}
+                    combined_changes = list(rule_result.proposed_changes)
+                    for l_prop in llm_result.proposed_changes:
+                        if l_prop.emotion_id not in existing_emotions:
+                            combined_changes.append(l_prop)
+                    event = rule_result.detected_event if rule_result.detected_event != "general_chat" else llm_result.detected_event
+                    return DetectionResult(
+                        detected_event=event,
+                        proposed_changes=combined_changes,
+                        confidence=max(rule_result.confidence, llm_result.confidence),
+                        reason_codes=list(set(rule_result.reason_codes + llm_result.reason_codes)),
+                        needs_clarification=llm_result.needs_clarification,
+                    )
             except Exception as e:
                 logger.warning(f"LLM emotion detection error, falling back to rule-based detector: {e}")
 
@@ -103,35 +116,37 @@ class EmotionDetector(EmotionDetectorProtocol):
             reason_codes.append("anger_triggered_playful")
             detected_event = "playful_teasing"
 
-        # 2. Check Possessiveness & Clinginess triggers (Rival girl, crush, female coworker, dating)
+        # 2. Check Possessiveness, Jealousy & Playful Anger triggers (Rival girl, crush, female coworker, dating)
         other_girl_keywords = [
-            "other girl", "another girl", "crush", "crushing", "she is", "she was", "she likes",
+            "other girl", "another girl", "crush", "crushing", "crushing on me", "crushes on me",
+            "she is", "she was", "she likes", "she likes me", "likes me", "proposed to me",
             "my female coworker", "pretty girl", "she said", "another friend", "dating", "talked to a girl",
             "talking to a girl", "she asked", "she texted", "ex girlfriend", "ex", "cute girl",
-            "she looked", "she smiled", "she is important", "she is behaved", "she proposed"
+            "she looked", "she smiled", "she is important", "she proposed", "girl at work",
+            "girl in college", "a girl likes", "someone likes me", "someone is crushing", "asked me out"
         ]
         if any(w in text for w in other_girl_keywords):
             proposed.append(ProposedEmotionChange(
                 emotion_id="jealousy",
                 sub_emotion="cute_suspicion",
-                delta_intensity=0.35,
-                confidence=0.90,
+                delta_intensity=0.50,
+                confidence=0.98,
                 reason="mention_of_other_female_or_crush",
                 trigger_type="conversational_cue",
             ))
             proposed.append(ProposedEmotionChange(
                 emotion_id="possessiveness",
                 sub_emotion="playful_jealousy",
-                delta_intensity=0.35,
-                confidence=0.90,
+                delta_intensity=0.50,
+                confidence=0.98,
                 reason="territorial_instinct",
                 trigger_type="conversational_cue",
             ))
             proposed.append(ProposedEmotionChange(
                 emotion_id="anger",
                 sub_emotion="playful_anger",
-                delta_intensity=0.20,
-                confidence=0.80,
+                delta_intensity=0.40,
+                confidence=0.95,
                 reason="feisty_pout_at_rival",
                 trigger_type="conversational_cue",
             ))

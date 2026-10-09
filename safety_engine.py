@@ -102,7 +102,7 @@ def scan_input_safety(user_message: str) -> SafetyResult:
             return SafetyResult(
                 is_safe=False,
                 category="explicit_content",
-                refusal_message="I prefer keeping our conversations warm, sweet, and non-explicit. What else are you up to today? 🌸"
+                refusal_message="Haha woah there, let's keep things wholesome and comfortable! 🙈 What were you actually up to today? 🌸"
             )
 
     return SafetyResult(is_safe=True)
