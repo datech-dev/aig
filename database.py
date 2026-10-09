@@ -257,6 +257,53 @@ def init_db():
             FOREIGN KEY(telegram_id) REFERENCES users(telegram_id)
         )
     """)
+
+    # Emotion Engine: conversation emotion state per user & persona
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS conversation_emotion_state (
+            telegram_id INTEGER,
+            persona_key TEXT,
+            active_emotions TEXT,
+            primary_emotion_id TEXT,
+            current_mood TEXT,
+            last_interaction TIMESTAMP,
+            version INTEGER DEFAULT 1,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (telegram_id, persona_key),
+            FOREIGN KEY(telegram_id) REFERENCES users(telegram_id)
+        )
+    """)
+
+    # Emotion Engine: user emotion preferences per user & persona
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS user_emotion_preferences (
+            telegram_id INTEGER,
+            persona_key TEXT,
+            enabled_emotions TEXT,
+            intensity_multipliers TEXT,
+            interaction_mode TEXT DEFAULT 'balanced',
+            custom_overrides TEXT,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (telegram_id, persona_key),
+            FOREIGN KEY(telegram_id) REFERENCES users(telegram_id)
+        )
+    """)
+
+    # Emotion Engine: transition history audit logs
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS emotion_transition_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            telegram_id INTEGER,
+            persona_key TEXT,
+            trigger_event TEXT,
+            proposed_changes TEXT,
+            applied_changes TEXT,
+            reason_code TEXT,
+            confidence REAL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(telegram_id) REFERENCES users(telegram_id)
+        )
+    """)
         
     conn.commit()
     conn.close()
@@ -1626,5 +1673,36 @@ def get_all_registered_users():
     rows = cursor.fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def get_emotion_repository():
+    """Returns an instance of EmotionStateRepository bound to current DB_PATH."""
+    from emotion_engine.repository import EmotionStateRepository
+    return EmotionStateRepository(db_path=DB_PATH)
+
+
+def get_user_emotion_state(telegram_id: int, persona_key: str = "juhi"):
+    """Fetches user emotion state from repository."""
+    repo = get_emotion_repository()
+    return repo.get_state(telegram_id, persona_key)
+
+
+def save_user_emotion_state(state):
+    """Saves user emotion state to repository."""
+    repo = get_emotion_repository()
+    return repo.save_state(state)
+
+
+def get_user_emotion_preferences(telegram_id: int, persona_key: str = "juhi"):
+    """Fetches user emotion preferences from repository."""
+    repo = get_emotion_repository()
+    return repo.get_preferences(telegram_id, persona_key)
+
+
+def save_user_emotion_preferences(preferences):
+    """Saves user emotion preferences to repository."""
+    repo = get_emotion_repository()
+    return repo.save_preferences(preferences)
+
 
 

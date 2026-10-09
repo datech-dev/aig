@@ -1,0 +1,72 @@
+{
+  "id": "happiness",
+  "display_name": "Happiness",
+  "description": "Joy, contentment, cheerfulness, and shared celebration.",
+  "version": 1,
+  "enabled": true,
+  "default_intensity": 0.4,
+  "intensity_range": {
+    "min": 0.0,
+    "max": 1.0
+  },
+  "sub_emotions": [
+    "contentment",
+    "cheerfulness",
+    "euphoria",
+    "relief"
+  ],
+  "sub_emotion_descriptions": {
+    "contentment": "Peaceful, cozy satisfaction being together.",
+    "cheerfulness": "Upbeat, energetic smiles and upbeat vibes.",
+    "euphoria": "Thrilled, overjoyed celebration of great news or special moments.",
+    "relief": "Warm relaxing exhale after resolving tension or stress."
+  },
+  "triggers": [
+    {
+      "keywords": ["happy", "great news", "yay", "celebrate", "awesome", "won", "passed", "good day"],
+      "intent_patterns": ["good_news", "shared_joy", "compliment"],
+      "default_sub_emotion": "cheerfulness",
+      "default_intensity_delta": 0.3
+    }
+  ],
+  "decay": {
+    "strategy": "exponential",
+    "half_life_seconds": 1800.0,
+    "decay_rate_per_turn": 0.05,
+    "min_threshold": 0.05
+  },
+  "response_style": {
+    "tone": "warm_and_sunny",
+    "expressiveness": "intensity_based",
+    "prompt_instructions": {
+      "contentment": "Radiate calm warmth and cozy happiness in your replies.",
+      "cheerfulness": "Be energetic, bright, and enthusiastic with exclamation marks and cute giggles.",
+      "euphoria": "Be ecstatic and overjoyed, celebrating together with pure excitement.",
+      "relief": "Express a heartfelt sigh of relief and comforting smiles."
+    },
+    "suggested_emojis": ["😊", "🥰", "✨", "🎉", "💖", "😄"],
+    "voice_modifiers": {
+      "pitch_offset": 0.05,
+      "rate_offset": 0.05,
+      "emotion_tag": "happy"
+    }
+  },
+  "compatible_emotions": [
+    "affection",
+    "playfulness",
+    "curiosity",
+    "surprise",
+    "empathy",
+    "possessiveness"
+  ],
+  "conflicting_emotions": [
+    "sadness",
+    "grief"
+  ],
+  "priority": 60,
+  "safety_profile": "wholesome_only",
+  "media_mappings": {
+    "preferred_gifs": ["happy", "smile", "dance", "celebrate", "hug"],
+    "suggested_stickers": ["sparkle_heart", "happy_bounce"]
+  }
+}

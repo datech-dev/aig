@@ -90,6 +90,66 @@ def extract_and_save_user_memories(user_id: int, user_message: str):
         database.add_user_event(user_id, event_title=full_title, event_type=ev_type)
 
 
+from emotion_engine import (
+    EmotionRegistry,
+    EmotionStateManager,
+    EmotionDetector,
+    ResponseStyleComposer,
+    EmotionStateRepository,
+    ConfigurationProvider,
+)
+from emotion_engine.registry import get_default_registry
+from emotion_engine.adapters.text_adapter import TextOutputAdapter
+from emotion_engine.adapters.media_adapter import MediaOutputAdapter
+
+_emotion_registry = get_default_registry()
+_emotion_repo = None
+_emotion_state_manager = None
+_emotion_detector = None
+_response_style_composer = None
+_config_provider = None
+_text_adapter = TextOutputAdapter()
+_media_adapter = MediaOutputAdapter()
+
+
+def get_emotion_state_manager() -> EmotionStateManager:
+    global _emotion_state_manager, _emotion_repo
+    if _emotion_state_manager is None:
+        _emotion_repo = EmotionStateRepository(db_path=database.DB_PATH)
+        _emotion_state_manager = EmotionStateManager(
+            registry=_emotion_registry,
+            repository=_emotion_repo,
+        )
+    return _emotion_state_manager
+
+
+def get_emotion_detector() -> EmotionDetector:
+    global _emotion_detector
+    if _emotion_detector is None:
+        _emotion_detector = EmotionDetector(
+            registry=_emotion_registry,
+            llm_client=client,
+            model_name=VENICE_MODEL,
+        )
+    return _emotion_detector
+
+
+def get_response_style_composer() -> ResponseStyleComposer:
+    global _response_style_composer
+    if _response_style_composer is None:
+        _response_style_composer = ResponseStyleComposer(registry=_emotion_registry)
+    return _response_style_composer
+
+
+def get_config_provider() -> ConfigurationProvider:
+    global _config_provider, _emotion_repo
+    if _config_provider is None:
+        if _emotion_repo is None:
+            _emotion_repo = EmotionStateRepository(db_path=database.DB_PATH)
+        _config_provider = ConfigurationProvider(repository=_emotion_repo)
+    return _config_provider
+
+
 async def generate_response(
     persona_key: str,
     relationship_xp: int,
@@ -103,8 +163,8 @@ async def generate_response(
     user_id: int = None
 ) -> str:
     """
-    Sends the conversation history, user input, and dynamic system prompt to Venice.ai
-    and returns the generated response.
+    Sends the conversation history, user input, dynamic system prompt,
+    and Emotion Engine behavioral guidance to Venice.ai and returns the generated response.
     """
     # 0. Centralized Input Safety Check
     input_safety = safety_engine.scan_input_safety(user_message)
@@ -115,7 +175,54 @@ async def generate_response(
     if user_id and memories is None:
         memories = database.get_user_memories_ranked(user_id, current_message=user_message, limit=10)
 
-    # 1. Construct the system prompt instructions
+    # 1. Process Emotion Engine Pipeline if user_id is provided
+    emotion_fragment = None
+    response_plan = None
+    if user_id:
+        try:
+            state_mgr = get_emotion_state_manager()
+            detector = get_emotion_detector()
+            composer = get_response_style_composer()
+            cfg_provider = get_config_provider()
+
+            # A. Get current state & preferences
+            curr_state = state_mgr.get_state(user_id, persona_key)
+            user_prefs = cfg_provider.get_user_preferences(user_id, persona_key)
+
+            # B. Detect proposed emotion changes
+            recent_context = chat_history[-6:] if chat_history else []
+            detection_res = await detector.detect_emotion_and_events(
+                user_message=user_message,
+                recent_history=recent_context,
+                current_state=curr_state,
+                memories=memories,
+                preferences=user_prefs,
+            )
+
+            # C. Apply transitions via policy & update state
+            updated_state = state_mgr.apply_proposed_changes(
+                user_id=user_id,
+                persona_key=persona_key,
+                proposed_changes=detection_res.proposed_changes,
+                trigger_event=detection_res.detected_event,
+                preferences=user_prefs,
+            )
+
+            # D. Compose Response Plan & Prompt Instructions
+            response_plan = composer.compose_plan(
+                current_state=updated_state,
+                base_persona_key=persona_key,
+                relationship_xp=relationship_xp,
+                chat_mode=chat_mode,
+                memories=memories,
+                preferences=user_prefs,
+            )
+            emotion_fragment = response_plan.prompt_fragment
+        except Exception as err:
+            logger.error(f"Error in Emotion Engine pipeline: {err}")
+            emotion_fragment = None
+
+    # 2. Construct the system prompt instructions with dynamic emotion fragment
     system_instruction = construct_system_prompt(
         persona_key=persona_key,
         relationship_xp=relationship_xp,
@@ -123,10 +230,11 @@ async def generate_response(
         ai_nickname=ai_nickname,
         user_orientation=user_orientation,
         chat_mode=chat_mode,
-        memories=memories
+        memories=memories,
+        emotion_fragment=emotion_fragment,
     )
     
-    # 2. Build the message list for Venice API
+    # 3. Build the message list for Venice API
     messages = [{"role": "system", "content": system_instruction}]
     
     # Add recent history (up to recent 8 messages to optimize token count and save credits)
@@ -151,12 +259,10 @@ async def generate_response(
             max_tokens=150
         )
 
-        
         # Extract response content
         ai_reply = response.choices[0].message.content.strip()
         # Output Safety Middleware Scan
         return safety_engine.scan_output_safety(ai_reply)
-
 
     except Exception as e:
         logger.error(f"Error calling Venice AI API: {e}")

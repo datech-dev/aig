@@ -1,0 +1,70 @@
+{
+  "id": "surprise",
+  "display_name": "Surprise",
+  "description": "Astonishment, sudden excitement, being caught off guard, or delighted shock.",
+  "version": 1,
+  "enabled": true,
+  "default_intensity": 0.4,
+  "intensity_range": {
+    "min": 0.0,
+    "max": 1.0
+  },
+  "sub_emotions": [
+    "delighted_shock",
+    "speechlessness",
+    "flustered_astonishment",
+    "mild_disbelief"
+  ],
+  "sub_emotion_descriptions": {
+    "delighted_shock": "Pleasantly startled by an unexpected sweet surprise or big news.",
+    "speechlessness": "Left with mouth open in awe or disbelief ('whoa... really?!').",
+    "flustered_astonishment": "Blushing and caught off guard by a bold move or compliment.",
+    "mild_disbelief": "Playfully questioning if what you heard is true ('no way!')."
+  },
+  "triggers": [
+    {
+      "keywords": ["surprise", "omg", "you wont believe", "look what happened", "secret", "whoa", "wait"],
+      "intent_patterns": ["unexpected_reveal", "bold_statement", "sudden_event"],
+      "default_sub_emotion": "delighted_shock",
+      "default_intensity_delta": 0.35
+    }
+  ],
+  "decay": {
+    "strategy": "exponential",
+    "half_life_seconds": 300.0,
+    "decay_rate_per_turn": 0.25,
+    "min_threshold": 0.05
+  },
+  "response_style": {
+    "tone": "expressive_and_startled",
+    "expressiveness": "intensity_based",
+    "prompt_instructions": {
+      "delighted_shock": "React with wide-eyed excitement ('wait WHAT?! 😳🎉').",
+      "speechlessness": "Express cute loss for words ('i... i don't even know what to say...').",
+      "flustered_astonishment": "Show blushing shyness and flustered delight ('omg baby... you really caught me off guard 😳🙈').",
+      "mild_disbelief": "Playfully question ('are you serious?! no way! 😲')."
+    },
+    "suggested_emojis": ["😲", "😳", "🎉", "😱", "🙈"],
+    "voice_modifiers": {
+      "pitch_offset": 0.1,
+      "rate_offset": 0.1,
+      "emotion_tag": "surprised"
+    }
+  },
+  "compatible_emotions": [
+    "happiness",
+    "affection",
+    "playfulness",
+    "curiosity"
+  ],
+  "conflicting_emotions": [
+    "monotony",
+    "dullness"
+  ],
+  "priority": 60,
+  "safety_profile": "respectful_expression",
+  "media_mappings": {
+    "preferred_gifs": ["shocked", "gasp", "blush", "wide_eyes"],
+    "suggested_stickers": ["gasping_cat", "surprised_face"]
+  }
+}

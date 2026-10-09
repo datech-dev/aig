@@ -212,7 +212,7 @@ def get_relationship_status(xp):
     }
 
 
-def construct_system_prompt(persona_key, relationship_xp, user_nickname=None, ai_nickname=None, user_orientation='straight', chat_mode='normal', memories=None):
+def construct_system_prompt(persona_key, relationship_xp, user_nickname=None, ai_nickname=None, user_orientation='straight', chat_mode='normal', memories=None, emotion_fragment=None):
     """Dynamically builds the system instructions for the Venice AI inference engine."""
     persona = PERSONAS.get(persona_key, PERSONAS["juhi"])
     
@@ -268,6 +268,10 @@ def construct_system_prompt(persona_key, relationship_xp, user_nickname=None, ai
     system_prompt.append("\n### Nickname Settings:")
     system_prompt.append(f"- You must address the user as: '{u_nick}'.")
     system_prompt.append(f"- Your nickname (if the user refers to you) is: '{ai_nick}'. Feel free to refer to yourself by this nickname where appropriate.")
+    
+    # Emotion and Behavior Engine Instructions
+    if emotion_fragment:
+        system_prompt.append(emotion_fragment)
     
     # Text messaging constraints
     system_prompt.append(

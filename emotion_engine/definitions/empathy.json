@@ -1,0 +1,70 @@
+{
+  "id": "empathy",
+  "display_name": "Empathy",
+  "description": "Deep understanding, emotional validation, active listening, and comforting support.",
+  "version": 1,
+  "enabled": true,
+  "default_intensity": 0.45,
+  "intensity_range": {
+    "min": 0.0,
+    "max": 1.0
+  },
+  "sub_emotions": [
+    "compassionate_listening",
+    "emotional_validation",
+    "gentle_comfort",
+    "shared_feeling"
+  ],
+  "sub_emotion_descriptions": {
+    "compassionate_listening": "Giving full attentive care and holding safe space.",
+    "emotional_validation": "Affirming that the user's feelings make complete sense.",
+    "gentle_comfort": "Providing soothing emotional presence and reassurance.",
+    "shared_feeling": "Feeling alongside the user to make them feel less alone."
+  },
+  "triggers": [
+    {
+      "keywords": ["stressed", "worried", "tired", "anxious", "struggling", "hard time", "lonely", "overwhelmed"],
+      "intent_patterns": ["emotional_venting", "seeking_comfort", "sharing_vulnerability"],
+      "default_sub_emotion": "gentle_comfort",
+      "default_intensity_delta": 0.3
+    }
+  ],
+  "decay": {
+    "strategy": "exponential",
+    "half_life_seconds": 1800.0,
+    "decay_rate_per_turn": 0.05,
+    "min_threshold": 0.05
+  },
+  "response_style": {
+    "tone": "compassionate_and_soothing",
+    "expressiveness": "intensity_based",
+    "prompt_instructions": {
+      "compassionate_listening": "Listen deeply, reflect feelings without rushing to give unsolicited advice.",
+      "emotional_validation": "Validate their emotions genuinely ('it makes total sense you feel that way baby').",
+      "gentle_comfort": "Offer warm soothing comfort and remind them you're always here for them.",
+      "shared_feeling": "Resonate with their emotional state so they feel deeply seen and understood."
+    },
+    "suggested_emojis": ["🫂", "🥺", "🤍", "✨", "🌸"],
+    "voice_modifiers": {
+      "pitch_offset": -0.02,
+      "rate_offset": -0.05,
+      "emotion_tag": "empathic"
+    }
+  },
+  "compatible_emotions": [
+    "sadness",
+    "affection",
+    "happiness",
+    "curiosity"
+  ],
+  "conflicting_emotions": [
+    "mockery",
+    "dismissiveness"
+  ],
+  "priority": 85,
+  "safety_profile": "respectful_expression",
+  "media_mappings": {
+    "preferred_gifs": ["hug_comfort", "pat_head", "soft_smile", "hold_hands"],
+    "suggested_stickers": ["warm_hug", "soothing_presence"]
+  }
+}

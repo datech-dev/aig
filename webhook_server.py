@@ -520,7 +520,8 @@ async def handle_api_chat(request):
             user_message=text,
             user_orientation=user_orientation,
             chat_mode=chat_mode,
-            memories=memories
+            memories=memories,
+            user_id=user_id
         )
         
         image_match = re.search(r'\[GENERATE_IMAGE:\s*(.*?)(?:\]|$)', reply, re.IGNORECASE | re.DOTALL)

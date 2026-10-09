@@ -972,7 +972,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user_message=text,
             user_orientation=user_orientation,
             chat_mode=chat_mode,
-            memories=memories
+            memories=memories,
+            user_id=user.id
         )
         
         # Check if the AI's reply contains an image generation tag [GENERATE_IMAGE: prompt]
