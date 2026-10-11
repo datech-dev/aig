@@ -98,6 +98,21 @@ class ApiService {
     return response.data as Map<String, dynamic>;
   }
 
+  // ── Relationship Level ───────────────────────────────────────────────────
+  Future<Map<String, dynamic>> setRelationshipLevel({
+    required String userId,
+    required int level,
+  }) async {
+    final response = await _dio.post(
+      AppConstants.apiRelationshipLevel,
+      data: {
+        'user_id': userId,
+        'level': level,
+      },
+    );
+    return response.data as Map<String, dynamic>;
+  }
+
   // ── Memories ──────────────────────────────────────────────────────────────
   Future<Map<String, dynamic>> getMemories(String userId) async {
     final response = await _dio.get(

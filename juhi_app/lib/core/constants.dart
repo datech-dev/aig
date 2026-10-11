@@ -16,6 +16,7 @@ class AppConstants {
   static const String apiConfig = '/api/config';
   static const String apiDeviceToken = '/api/device-token';
   static const String apiTestNotification = '/api/notifications/test';
+  static const String apiRelationshipLevel = '/api/relationship/level';
 
   // ── Storage Keys ──────────────────────────────────────────────────────────
   static const String keyUserId = 'user_id';
@@ -35,12 +36,12 @@ class AppConstants {
 
   // ── Relationship Levels ──────────────────────────────────────────────────
   static const List<Map<String, dynamic>> relationshipLevels = [
-    {'level': 1, 'title': 'Acquaintances', 'affection': 0, 'xp': 0, 'emoji': '👋'},
-    {'level': 2, 'title': 'Friends', 'affection': 100, 'xp': 100, 'emoji': '😊'},
-    {'level': 3, 'title': 'Close Friends', 'affection': 300, 'xp': 300, 'emoji': '🤗'},
-    {'level': 4, 'title': 'Crushing', 'affection': 600, 'xp': 600, 'emoji': '😍'},
-    {'level': 5, 'title': 'Sweethearts', 'affection': 1000, 'xp': 1000, 'emoji': '💕'},
-    {'level': 6, 'title': 'Soulmates', 'affection': 1500, 'xp': 1500, 'emoji': '💞'},
+    {'level': 1, 'title': 'Acquaintances', 'affection': 0, 'xp': 0, 'emoji': '👋', 'description': 'Polite, friendly boundaries & warm replies.'},
+    {'level': 2, 'title': 'Friends', 'affection': 100, 'xp': 100, 'emoji': '😊', 'description': 'Playful, warm, and casual daily banter.'},
+    {'level': 3, 'title': 'Close Friends', 'affection': 300, 'xp': 300, 'emoji': '🌸', 'description': 'Empathetic, shares thoughts, feelings & secrets.'},
+    {'level': 4, 'title': 'Crushing', 'affection': 600, 'xp': 600, 'emoji': '💕', 'description': 'Flirty, sweet teasing, cute blushing & romantic chemistry.'},
+    {'level': 5, 'title': 'Sweethearts', 'affection': 1000, 'xp': 1000, 'emoji': '💖', 'description': 'Deeply affectionate, pet names & unconditional devotion.'},
+    {'level': 6, 'title': 'Soulmates', 'affection': 1500, 'xp': 1500, 'emoji': '👑', 'description': 'Completely devoted, profound intimacy & shared future.'},
   ];
 
   // ── Pricing ───────────────────────────────────────────────────────────────

@@ -8,6 +8,7 @@ import '../../providers/chat_provider.dart';
 import '../../providers/profile_provider.dart';
 import '../../data/local_storage.dart';
 import '../../data/api_service.dart';
+import '../../widgets/relationship_level_sheet.dart';
 import 'widgets/message_bubble.dart';
 import 'widgets/typing_indicator.dart';
 import 'widgets/chat_input_bar.dart';
@@ -148,6 +149,23 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   if (!isIntimate) await _executeToggleMode();
                 },
               ),
+
+              const SizedBox(height: 12),
+
+              // Relationship Stage Card
+              _ModeOptionTile(
+                title: '💖 Relationship Stage (Lv ${profile?.level ?? 1})',
+                description: 'Stage: ${profile?.levelTitle ?? "Acquaintances"}. Tap to change relationship dynamic.',
+                isSelected: false,
+                onTap: () {
+                  Navigator.pop(ctx);
+                  RelationshipLevelSheet.show(
+                    context,
+                    ref,
+                    currentLevel: profile?.level ?? 1,
+                  );
+                },
+              ),
             ],
           ),
         ),
@@ -200,6 +218,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   profile: profile,
                   onToggleMode: _showModeSelectorSheet,
                   onProfileTap: () => context.go('/profile'),
+                  onLevelTap: () => RelationshipLevelSheet.show(
+                    context,
+                    ref,
+                    currentLevel: profile?.level ?? 1,
+                  ),
                 ),
 
                 // ── Messages ─────────────────────────────────────────────────
@@ -265,11 +288,13 @@ class _ChatAppBar extends StatelessWidget {
   final dynamic profile;
   final VoidCallback onToggleMode;
   final VoidCallback onProfileTap;
+  final VoidCallback? onLevelTap;
 
   const _ChatAppBar({
     required this.profile,
     required this.onToggleMode,
     required this.onProfileTap,
+    this.onLevelTap,
   });
 
   @override
@@ -353,18 +378,33 @@ class _ChatAppBar extends StatelessWidget {
                           ),
                           const SizedBox(width: 6),
                           if (profile != null)
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                              decoration: BoxDecoration(
-                                gradient: AppTheme.primaryGradient,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Text(
-                                'Lv ${profile.level}',
-                                style: const TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w800,
-                                  color: Colors.white,
+                            GestureDetector(
+                              onTap: onLevelTap,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                decoration: BoxDecoration(
+                                  gradient: AppTheme.primaryGradient,
+                                  borderRadius: BorderRadius.circular(12),
+                                  boxShadow: AppTheme.glowShadow(blur: 6),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      'Lv ${profile.level}',
+                                      style: const TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w800,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 2),
+                                    const Icon(
+                                      Icons.arrow_drop_down_rounded,
+                                      size: 13,
+                                      color: Colors.white,
+                                    ),
+                                  ],
                                 ),
                               ),
                             ),

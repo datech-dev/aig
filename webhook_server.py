@@ -870,12 +870,14 @@ async def handle_api_set_relationship_level(request):
         database.setup_user(user_id, "app_user", "User")
         _, new_lvl, title, new_xp = database.set_relationship_level(user_id, level)
         level_info = config.RELATIONSHIP_LEVELS[new_lvl]
+        status = config.get_relationship_status(new_xp)
         return web.json_response({
             "success": True,
             "user_id": user_id,
             "level": new_lvl,
             "title": title,
             "xp": new_xp,
+            "percent": status["percent"],
             "guideline": level_info["guideline"]
         })
     except Exception as e:

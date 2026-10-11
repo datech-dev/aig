@@ -38,4 +38,38 @@ class ProfileNotifier extends AsyncNotifier<UserProfile?> {
   void updateLocally(UserProfile updated) {
     state = AsyncData(updated);
   }
+
+  Future<bool> setRelationshipLevel(int level) async {
+    final userId = await LocalStorage.getUserId();
+    if (userId == null) return false;
+
+    try {
+      final res = await apiService.setRelationshipLevel(
+        userId: userId,
+        level: level,
+      );
+      if (res['success'] == true) {
+        final current = state.valueOrNull;
+        if (current != null) {
+          state = AsyncData(
+            current.copyWith(
+              level: res['level'] ?? level,
+              levelTitle: res['title'] ?? current.levelTitle,
+              xp: res['xp'] ?? current.xp,
+              xpPercent: res['percent'] ?? current.xpPercent,
+            ),
+          );
+        }
+        // Full refresh to keep server & client strictly synced
+        _fetchProfile().then((fresh) {
+          if (fresh != null) state = AsyncData(fresh);
+        });
+        return true;
+      }
+    } catch (e) {
+      // ignore: avoid_print
+      print('[ProfileProvider] Error setting relationship level: $e');
+    }
+    return false;
+  }
 }

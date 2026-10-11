@@ -7,6 +7,7 @@ import '../../core/theme.dart';
 import '../../providers/profile_provider.dart';
 import '../../core/constants.dart';
 import '../../data/local_storage.dart';
+import '../../widgets/relationship_level_sheet.dart';
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -304,21 +305,61 @@ class _ProfileContent extends ConsumerWidget {
                               ),
                             ],
                           ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(
-                              gradient: AppTheme.primaryGradient,
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            child: Text(
-                              '$affectionPercent%',
-                              style: const TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white,
+                          Row(
+                            children: [
+                              GestureDetector(
+                                onTap: () => RelationshipLevelSheet.show(
+                                  context,
+                                  ref,
+                                  currentLevel: profile.level as int,
+                                ),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 9, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.primary.withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: AppTheme.primary,
+                                      width: 0.9,
+                                    ),
+                                  ),
+                                  child: const Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.tune_rounded,
+                                          size: 12, color: AppTheme.primary),
+                                      SizedBox(width: 3),
+                                      Text(
+                                        'Stage',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w700,
+                                          color: AppTheme.primary,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               ),
-                            ),
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  gradient: AppTheme.primaryGradient,
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                child: Text(
+                                  '$affectionPercent%',
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
@@ -357,12 +398,19 @@ class _ProfileContent extends ConsumerWidget {
                               color: AppTheme.textSecondary,
                             ),
                           ),
-                          Text(
-                            'Next Milestone ✨',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              color: AppTheme.textSecondary,
+                          GestureDetector(
+                            onTap: () => RelationshipLevelSheet.show(
+                              context,
+                              ref,
+                              currentLevel: profile.level as int,
+                            ),
+                            child: const Text(
+                              'Change Stage ✨',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: AppTheme.primary,
+                              ),
                             ),
                           ),
                         ],
@@ -423,16 +471,71 @@ class _ProfileContent extends ConsumerWidget {
                 const SizedBox(height: 18),
 
                 // ── Relationship Journey Timeline ──────────────────────────
-                const Text(
-                  'Relationship Journey',
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Relationship Journey',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                      ),
+                    ),
+                    GestureDetector(
+                      onTap: () => RelationshipLevelSheet.show(
+                        context,
+                        ref,
+                        currentLevel: profile.level as int,
+                      ),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: AppTheme.primary.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: AppTheme.primary,
+                            width: 0.8,
+                          ),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.tune_rounded,
+                                size: 13, color: AppTheme.primary),
+                            SizedBox(width: 4),
+                            Text(
+                              'Change Stage',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: AppTheme.primary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Tap any stage below to customize how Juhi interacts with you.',
                   style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.white,
+                    fontSize: 12,
+                    color: AppTheme.textSecondary,
                   ),
                 ),
                 const SizedBox(height: 10),
-                _RelationshipJourneyPath(currentLevel: profile.level as int),
+                _RelationshipJourneyPath(
+                  currentLevel: profile.level as int,
+                  onTapLevel: (lvl) => RelationshipLevelSheet.show(
+                    context,
+                    ref,
+                    currentLevel: profile.level as int,
+                  ),
+                ),
 
                 const SizedBox(height: 18),
 
@@ -640,8 +743,12 @@ class _ProfileContent extends ConsumerWidget {
 // ── Relationship Journey Visual Path ──────────────────────────────────────────
 class _RelationshipJourneyPath extends StatelessWidget {
   final int currentLevel;
+  final ValueChanged<int>? onTapLevel;
 
-  const _RelationshipJourneyPath({required this.currentLevel});
+  const _RelationshipJourneyPath({
+    required this.currentLevel,
+    this.onTapLevel,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -660,112 +767,129 @@ class _RelationshipJourneyPath extends StatelessWidget {
           final isCurrent = levelNum == currentLevel;
           final reqAffection = lvl['affection'] ?? lvl['xp'];
 
-          return Container(
-            margin: const EdgeInsets.symmetric(vertical: 4),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: isCurrent
-                  ? AppTheme.primary.withValues(alpha: 0.15)
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(14),
-              border: isCurrent
-                  ? Border.all(color: AppTheme.primary, width: 1.2)
-                  : null,
-            ),
-            child: Row(
-              children: [
-                // Milestone icon / checkmark
-                Container(
-                  width: 34,
-                  height: 34,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: isCurrent
-                        ? AppTheme.primary
-                        : isUnlocked
-                            ? AppTheme.surface
-                            : AppTheme.border.withValues(alpha: 0.4),
-                    border: Border.all(
-                      color: isUnlocked ? AppTheme.primary : AppTheme.border,
-                      width: 1,
+          return GestureDetector(
+            onTap: () {
+              HapticFeedback.lightImpact();
+              onTapLevel?.call(levelNum);
+            },
+            child: Container(
+              margin: const EdgeInsets.symmetric(vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: isCurrent
+                    ? AppTheme.primary.withValues(alpha: 0.15)
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(14),
+                border: isCurrent
+                    ? Border.all(color: AppTheme.primary, width: 1.2)
+                    : null,
+              ),
+              child: Row(
+                children: [
+                  // Milestone icon / checkmark
+                  Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: isCurrent
+                          ? AppTheme.primary
+                          : isUnlocked
+                              ? AppTheme.surface
+                              : AppTheme.border.withValues(alpha: 0.4),
+                      border: Border.all(
+                        color: isUnlocked ? AppTheme.primary : AppTheme.border,
+                        width: 1,
+                      ),
+                    ),
+                    child: Center(
+                      child: Text(
+                        lvl['emoji'] as String,
+                        style: const TextStyle(fontSize: 16),
+                      ),
                     ),
                   ),
-                  child: Center(
-                    child: isUnlocked
-                        ? Text(lvl['emoji'] as String,
-                            style: const TextStyle(fontSize: 16))
-                        : const Icon(Icons.lock_rounded,
-                            size: 14, color: Color(0xFF888888)),
-                  ),
-                ),
 
-                const SizedBox(width: 12),
+                  const SizedBox(width: 12),
 
-                // Level title and affection requirements
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Text(
-                            'Level $levelNum — ${lvl['title']}',
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight:
-                                  isCurrent ? FontWeight.w800 : FontWeight.w600,
-                              color: isUnlocked
-                                  ? Colors.white
-                                  : AppTheme.textSecondary.withValues(alpha: 0.6),
-                            ),
-                          ),
-                          if (isCurrent) ...[
-                            const SizedBox(width: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                gradient: AppTheme.primaryGradient,
-                                borderRadius: BorderRadius.circular(8),
+                  // Level title and affection requirements
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              'Level $levelNum — ${lvl['title']}',
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight:
+                                    isCurrent ? FontWeight.w800 : FontWeight.w600,
+                                color: isCurrent
+                                    ? AppTheme.primary
+                                    : isUnlocked
+                                        ? Colors.white
+                                        : AppTheme.textSecondary.withValues(alpha: 0.8),
                               ),
-                              child: const Text(
-                                'CURRENT',
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w800,
-                                  color: Colors.white,
+                            ),
+                            if (isCurrent) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  gradient: AppTheme.primaryGradient,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Text(
+                                  'CURRENT',
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.white,
+                                  ),
                                 ),
                               ),
-                            ),
+                            ],
                           ],
-                        ],
-                      ),
-                      Text(
-                        '$reqAffection Affection required',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: isCurrent
-                              ? AppTheme.primary
-                              : AppTheme.textSecondary.withValues(alpha: 0.7),
                         ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                // Status check or lock
-                if (isUnlocked)
-                  const Icon(Icons.check_circle_rounded,
-                      color: AppTheme.primary, size: 18)
-                else
-                  Text(
-                    'Locked',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: AppTheme.textSecondary.withValues(alpha: 0.5),
+                        Text(
+                          '$reqAffection Affection required',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: isCurrent
+                                ? AppTheme.primary
+                                : AppTheme.textSecondary.withValues(alpha: 0.7),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-              ],
+
+                  // Status check or switch button
+                  if (isCurrent)
+                    const Icon(Icons.check_circle_rounded,
+                        color: AppTheme.primary, size: 18)
+                  else
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: AppTheme.surface,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppTheme.border, width: 0.6),
+                      ),
+                      child: const Text(
+                        'Select',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.primary,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
             ),
           );
         }).toList(),
