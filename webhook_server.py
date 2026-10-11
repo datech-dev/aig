@@ -853,6 +853,36 @@ async def handle_api_profile(request):
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
 
+async def handle_api_set_relationship_level(request):
+    """API endpoint to manually select the relationship level (1 to 6) from mobile app or web."""
+    try:
+        data = await request.json()
+        user_id = data.get("user_id")
+        level = data.get("level")
+        if not user_id or level is None:
+            return web.json_response({"error": "Missing user_id or level"}, status=400)
+            
+        user_id = int(user_id)
+        level = int(level)
+        if level < 1 or level > 6:
+            return web.json_response({"error": "Level must be between 1 and 6"}, status=400)
+            
+        database.setup_user(user_id, "app_user", "User")
+        _, new_lvl, title, new_xp = database.set_relationship_level(user_id, level)
+        level_info = config.RELATIONSHIP_LEVELS[new_lvl]
+        return web.json_response({
+            "success": True,
+            "user_id": user_id,
+            "level": new_lvl,
+            "title": title,
+            "xp": new_xp,
+            "guideline": level_info["guideline"]
+        })
+    except Exception as e:
+        logger.error(f"Error in handle_api_set_relationship_level: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+
 async def handle_api_history(request):
     """API endpoint to fetch chat history for the mobile app."""
     user_id_str = request.query.get("user_id")
@@ -1792,6 +1822,7 @@ async def start_webhook_server(application, port=8080):
     app.router.add_get('/api/history', handle_api_history)
     app.router.add_post('/api/chat', handle_api_chat)
     app.router.add_post('/api/mode/toggle', handle_api_toggle_mode)
+    app.router.add_post('/api/relationship/level', handle_api_set_relationship_level)
     app.router.add_get('/api/memories', handle_api_memories)
     app.router.add_post('/api/memories', handle_api_memories)
     app.router.add_post('/api/device-token', handle_api_device_token)

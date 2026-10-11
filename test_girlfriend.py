@@ -691,6 +691,52 @@ class TestGirlfriendApp(unittest.TestCase):
         self.assertIn("1-Month Unlimited Pass Activated", msg_month)
         self.assertIn("IST", msg_month)
 
+    def test_20_manual_relationship_level_selection(self):
+        """Verify manual relationship level selection, cross-persona synchronization, and bounds clamping."""
+        u_test = 88887777
+        database.setup_user(u_test, "rel_level_user", "LevelUser")
+        
+        # Default level is 1 (Acquaintances, 0 XP)
+        settings = database.get_user_settings(u_test)
+        self.assertEqual(settings["relationship_level"], 1)
+        self.assertEqual(settings["relationship_xp"], 0)
+
+        # Manually jump to Level 4 (Crushing, 600 XP)
+        res = database.set_relationship_level(u_test, 4)
+        self.assertTrue(res["success"])
+        self.assertEqual(res["level"], 4)
+        self.assertEqual(res["title"], "Crushing")
+        self.assertEqual(res["xp"], 600)
+
+        # Verify status reflected in user settings
+        settings_after = database.get_user_settings(u_test)
+        self.assertEqual(settings_after["relationship_level"], 4)
+        self.assertEqual(settings_after["relationship_xp"], 600)
+
+        # Verify cross-persona synchronization across Juhi scenes
+        database.update_active_persona(u_test, "juhi_long_drive")
+        settings_drive = database.get_user_settings(u_test)
+        self.assertEqual(settings_drive["relationship_level"], 4)
+        self.assertEqual(settings_drive["relationship_xp"], 600)
+
+        # Verify keyboard generator puts a checkmark on level 4
+        import bot
+        kb = bot.build_relationship_level_keyboard(4)
+        button_texts = [btn.text for row in kb.inline_keyboard for btn in row]
+        self.assertTrue(any("Current ✅" in txt and "Crushing" in txt for txt in button_texts))
+
+        # Verify boundary clamp: Level 10 clamped to 6 (Soulmates, 1500 XP)
+        res_high = database.set_relationship_level(u_test, 10)
+        self.assertEqual(res_high["level"], 6)
+        self.assertEqual(res_high["title"], "Soulmates")
+        self.assertEqual(res_high["xp"], 1500)
+
+        # Verify boundary clamp: Level 0 clamped to 1 (Acquaintances, 0 XP)
+        res_low = database.set_relationship_level(u_test, 0)
+        self.assertEqual(res_low["level"], 1)
+        self.assertEqual(res_low["title"], "Acquaintances")
+        self.assertEqual(res_low["xp"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

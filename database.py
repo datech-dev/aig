@@ -5,7 +5,7 @@ import json
 import logging
 from datetime import datetime, timedelta
 import config
-from config import PERSONAS, get_relationship_status, INITIAL_IMAGE_CREDITS, CHAT_PASS_DURATION_HOURS, FREE_MESSAGE_LIMIT
+from config import PERSONAS, get_relationship_status, RELATIONSHIP_LEVELS, INITIAL_IMAGE_CREDITS, CHAT_PASS_DURATION_HOURS, FREE_MESSAGE_LIMIT
 
 logger = logging.getLogger(__name__)
 
@@ -536,6 +536,52 @@ def add_xp(telegram_id, amount=10):
     conn.close()
     
     return leveled_up, new_level, new_title
+
+
+class RelationshipLevelResult(dict):
+    def __init__(self, success: bool, level: int, title: str, xp: int):
+        super().__init__(success=success, level=level, title=title, xp=xp)
+        self.success = success
+        self.level = level
+        self.title = title
+        self.xp = xp
+
+    def __iter__(self):
+        return iter((self.success, self.level, self.title, self.xp))
+
+
+def set_relationship_level(telegram_id, target_level: int):
+    """
+    Manually sets the relationship level (1 to 6) and corresponding base XP for the user,
+    synchronizing it across all Juhi personas.
+    Returns: RelationshipLevelResult (supports tuple unpacking & dict keys)
+    """
+    target_level = max(1, min(6, int(target_level)))
+    level_info = RELATIONSHIP_LEVELS[target_level]
+    new_xp = level_info["xp_needed"]
+    new_title = level_info["title"]
+    
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT 1 FROM user_settings WHERE telegram_id = ?", (telegram_id,))
+    if not cursor.fetchone():
+        setup_user(telegram_id, "user", "User")
+
+    active_persona = get_active_persona_key(telegram_id)
+    target_personas = [active_persona]
+    if active_persona.startswith("juhi"):
+        target_personas = [p for p in PERSONAS.keys() if p.startswith("juhi")]
+        
+    for p_key in target_personas:
+        cursor.execute("""
+            UPDATE user_settings
+            SET relationship_xp = ?, relationship_level = ?
+            WHERE telegram_id = ? AND persona_key = ?
+        """, (new_xp, target_level, telegram_id, p_key))
+    conn.commit()
+    conn.close()
+    
+    return RelationshipLevelResult(True, target_level, new_title, new_xp)
 
 
 def add_chat_message(telegram_id, persona_key, role, message):

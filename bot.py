@@ -155,8 +155,11 @@ def build_profile_view(user_id):
             InlineKeyboardButton("🧠 Memory Bank", callback_data="view_memories")
         ],
         [
-            InlineKeyboardButton("📅 Expiry & Subscription Info", callback_data="view_subscription"),
+            InlineKeyboardButton("💖 Choose Relationship Stage", callback_data="menu_set_level"),
             InlineKeyboardButton("✏️ Edit Nicknames", callback_data="menu_nicknames")
+        ],
+        [
+            InlineKeyboardButton("📅 Expiry & Subscription Info", callback_data="view_subscription")
         ],
         [
             InlineKeyboardButton("💬 Buy / Extend Chat Pass", callback_data="buy_chat_menu"),
@@ -212,6 +215,76 @@ def build_subscription_view(user_id):
             [InlineKeyboardButton("🔙 Back to Profile", callback_data="profile_back")]
         ]
     return sub_text, InlineKeyboardMarkup(keyboard)
+
+
+def build_relationship_level_keyboard(current_level: int = 1):
+    """Builds inline keyboard for selecting relationship level 1 through 6."""
+    keyboard = []
+    level_emojis = {
+        1: "🤝",
+        2: "😊",
+        3: "🌸",
+        4: "💕",
+        5: "💖",
+        6: "👑"
+    }
+    for lvl in range(1, 7):
+        info = config.RELATIONSHIP_LEVELS[lvl]
+        emoji = level_emojis.get(lvl, "✨")
+        is_current = (lvl == current_level)
+        label = f"{emoji} Level {lvl}: {info['title']}"
+        if is_current:
+            label += " (Current ✅)"
+        keyboard.append([InlineKeyboardButton(label, callback_data=f"set_rel_level_{lvl}")])
+        
+    keyboard.append([InlineKeyboardButton("🔙 Back to Profile", callback_data="profile_back")])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_relationship_level_text(user_id: int):
+    """Builds descriptive prompt and options for choosing relationship level manually."""
+    settings = database.get_user_settings(user_id)
+    xp = settings["relationship_xp"] if settings else 0
+    status = config.get_relationship_status(xp)
+    current_lvl = status["level"]
+    
+    text = (
+        f"💖 <b>CHOOSE RELATIONSHIP STAGE</b> 💖\n\n"
+        f"Current Stage: <b>Level {current_lvl} — {status['title']}</b> ({xp} XP)\n\n"
+        f"Select any stage below to manually adjust how Juhi treats and talks to you:\n\n"
+        f"• <b>Level 1: Acquaintances 🤝</b> — Polite, friendly, polite boundaries.\n"
+        f"• <b>Level 2: Friends 😊</b> — Playful, warm, casual banter.\n"
+        f"• <b>Level 3: Close Friends 🌸</b> — Empathetic, sharing personal thoughts & secrets.\n"
+        f"• <b>Level 4: Crushing 💕</b> — Flirty, sweet teasing, cute blushing, emotional bond.\n"
+        f"• <b>Level 5: Sweethearts 💖</b> — Deeply affectionate, pet names, romantic devotion.\n"
+        f"• <b>Level 6: Soulmates 👑</b> — Completely devoted, deep intimacy, shared future.\n\n"
+        f"<i>Tap any level below to instantly switch:</i>"
+    )
+    return text, build_relationship_level_keyboard(current_lvl)
+
+
+async def level_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Allows manual selection of the relationship level."""
+    user = update.effective_user
+    database.setup_user(user.id, user.username, user.first_name)
+    
+    # Check if a numeric level argument was provided (e.g. /level 4)
+    if context.args and len(context.args) > 0:
+        arg = context.args[0].strip()
+        if arg.isdigit() and 1 <= int(arg) <= 6:
+            lvl = int(arg)
+            _, new_lvl, title, new_xp = database.set_relationship_level(user.id, lvl)
+            level_info = config.RELATIONSHIP_LEVELS[new_lvl]
+            await update.message.reply_text(
+                f"🎉 <b>Relationship Level Updated!</b>\n\n"
+                f"You and Juhi are now <b>Level {new_lvl}: {title}</b> ({new_xp} XP)!\n\n"
+                f"💬 <i>{level_info['guideline']}</i>",
+                parse_mode="HTML"
+            )
+            return
+
+    text, reply_markup = build_relationship_level_text(user.id)
+    await update.message.reply_text(text, reply_markup=reply_markup, parse_mode="HTML")
 
 
 async def subscription_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -359,6 +432,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Here are the commands you can use to control the bot:\n"
         "• /start - Greet Juhi and begin chatting.\n"
         "• /profile - Check relationship level, XP, nicknames & status.\n"
+        "• /level - Manually select relationship stage (1: Acquaintances to 6: Soulmates).\n"
         "• /subscription - View subscription status, plan & exact expiry date/time.\n"
         "• /mode - Toggle Caring Best Friend vs Intimate Girlfriend mode.\n"
         "• /roleplay - Switch Juhi's roleplay scenario.\n"
@@ -647,6 +721,32 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         USER_STATES.pop(user_id, None)
         sub_text, reply_markup = build_subscription_view(user_id)
         await query.message.edit_text(sub_text, reply_markup=reply_markup, parse_mode="HTML")
+
+    # 5c. Manual Relationship Level Selection Menu
+    elif data == "menu_set_level":
+        USER_STATES.pop(user_id, None)
+        text, reply_markup = build_relationship_level_text(user_id)
+        await query.message.edit_text(text, reply_markup=reply_markup, parse_mode="HTML")
+
+    elif data.startswith("set_rel_level_"):
+        USER_STATES.pop(user_id, None)
+        lvl_str = data[len("set_rel_level_"):]
+        if lvl_str.isdigit():
+            target_lvl = int(lvl_str)
+            _, new_lvl, title, new_xp = database.set_relationship_level(user_id, target_lvl)
+            level_info = config.RELATIONSHIP_LEVELS[new_lvl]
+            confirm_msg = (
+                f"✨ <b>Relationship Stage Updated!</b> ✨\n\n"
+                f"You and Juhi are now <b>Level {new_lvl} — {title}</b> ({new_xp} XP)!\n\n"
+                f"Juhi will now behave according to this stage:\n"
+                f"<i>\"{level_info['guideline']}\"</i>\n\n"
+                f"Start chatting to experience her new personality dynamics! 🥰"
+            )
+            keyboard = [
+                [InlineKeyboardButton("🔄 Switch Level Again", callback_data="menu_set_level")],
+                [InlineKeyboardButton("🔙 Back to Profile", callback_data="profile_back")]
+            ]
+            await query.message.edit_text(confirm_msg, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML")
 
     # Mode and Memory Bank Callbacks
     elif data == "toggle_chat_mode":
@@ -1417,6 +1517,7 @@ async def post_init(application: Application):
     commands = [
         BotCommand("start", "Start chatting with Juhi"),
         BotCommand("profile", "View profile, relationship level & status"),
+        BotCommand("level", "Manually choose your relationship stage (1-6)"),
         BotCommand("subscription", "Check subscription status & expiry date/time"),
         BotCommand("roleplay", "Switch companion persona"),
         BotCommand("mode", "Toggle Normal vs Intimate chat mode"),
@@ -1453,6 +1554,8 @@ def main():
     # Add Command Handlers
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("profile", profile_command))
+    application.add_handler(CommandHandler("level", level_command))
+    application.add_handler(CommandHandler("relationship", level_command))
     application.add_handler(CommandHandler("subscription", subscription_command))
     application.add_handler(CommandHandler("expiry", subscription_command))
     application.add_handler(CommandHandler("status", subscription_command))
