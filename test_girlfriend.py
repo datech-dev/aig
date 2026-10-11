@@ -619,6 +619,78 @@ class TestGirlfriendApp(unittest.TestCase):
         self.assertEqual(len(exec_results), 1)
         self.assertEqual(exec_results[0]["telegram_id"], test_user_id)
 
+    def test_19_weekly_and_monthly_pass_and_subscription_info(self):
+        """Verify that 1-week (168h) and 1-month (720h) passes grant correct durations and expiry info."""
+        u_week = 66661111
+        u_month = 66662222
+        database.setup_user(u_week, "week_user", "WeekUser")
+        database.setup_user(u_month, "month_user", "MonthUser")
+
+        # 1. Unlock Weekly Pass (168h)
+        database.create_payment_order(u_week, order_id="ord_week_1", amount=19900, item_type="chat_pass_1week")
+        unlocked, exp_week, msg = database.unlock_paid_access_idempotent(
+            telegram_id=u_week,
+            order_id="ord_week_1",
+            payment_id="pay_week_1",
+            item_type="chat_pass_1week",
+            amount=19900
+        )
+        self.assertTrue(unlocked)
+        now = datetime.utcnow()
+        hours_remaining_week = (exp_week - now).total_seconds() / 3600
+        self.assertGreater(hours_remaining_week, 160) # ~168 hours
+
+        sub_info_week = database.get_subscription_info(u_week)
+        self.assertTrue(sub_info_week["is_subscribed"])
+        self.assertIn("1-Week", sub_info_week["plan_name"])
+        self.assertIsNotNone(sub_info_week["expires_at_ist"])
+        self.assertIn("IST", sub_info_week["expires_at_ist"])
+        self.assertIsNotNone(sub_info_week["expiry_date_str"])
+        self.assertIsNotNone(sub_info_week["expiry_time_str"])
+
+        # 2. Unlock Monthly Pass (720h)
+        database.create_payment_order(u_month, order_id="ord_month_1", amount=49900, item_type="chat_pass_1month")
+        unlocked_m, exp_month, msg_m = database.unlock_paid_access_idempotent(
+            telegram_id=u_month,
+            order_id="ord_month_1",
+            payment_id="pay_month_1",
+            item_type="chat_pass_1month",
+            amount=49900
+        )
+        self.assertTrue(unlocked_m)
+        hours_remaining_month = (exp_month - now).total_seconds() / 3600
+        self.assertGreater(hours_remaining_month, 700) # ~720 hours
+
+        sub_info_month = database.get_subscription_info(u_month)
+        self.assertTrue(sub_info_month["is_subscribed"])
+        self.assertIn("1-Month", sub_info_month["plan_name"])
+        self.assertIsNotNone(sub_info_month["expires_at_ist"])
+
+        # 3. Test safety net: if order was created with amount 19900, but verify passed generic "chat_pass"
+        u_fallback = 66663333
+        database.setup_user(u_fallback, "fb_user", "FbUser")
+        database.create_payment_order(u_fallback, order_id="ord_fb_1", amount=19900, item_type="chat_pass_1week")
+        unlocked_fb, exp_fb, msg_fb = database.unlock_paid_access_idempotent(
+            telegram_id=u_fallback,
+            order_id="ord_fb_1",
+            payment_id="pay_fb_1",
+            item_type="chat_pass", # generic pass sent by frontend/webhook
+            amount=19900
+        )
+        self.assertTrue(unlocked_fb)
+        hours_fb = (exp_fb - now).total_seconds() / 3600
+        self.assertGreater(hours_fb, 160) # Recovered as 1-week pass!
+
+        # 4. Verify confirmation text helper from webhook_server
+        import webhook_server
+        msg_week = webhook_server.get_payment_confirmation_text("chat_pass_1week", exp_week)
+        self.assertIn("1-Week Unlimited Pass Activated", msg_week)
+        self.assertIn("IST", msg_week)
+
+        msg_month = webhook_server.get_payment_confirmation_text("chat_pass_1month", exp_month)
+        self.assertIn("1-Month Unlimited Pass Activated", msg_month)
+        self.assertIn("IST", msg_month)
+
 
 if __name__ == "__main__":
     unittest.main()

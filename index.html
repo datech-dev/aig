@@ -1132,7 +1132,7 @@
             // Parse query parameters from URL
             const urlParams = new URLSearchParams(window.location.search);
             const userId = urlParams.get('user_id');
-            const item = urlParams.get('item');
+            const item = urlParams.get('item_type') || urlParams.get('item') || urlParams.get('plan_type');
             
             if (userId) {
                 document.getElementById('telegram-id').value = userId;
@@ -1140,12 +1140,18 @@
             }
             if (item) {
                 switchTab('pay');
-                if (item === 'chat_pass') {
-                    const card = document.getElementById('product-chat-pass');
-                    selectProduct(card, 'chat_pass', 5000);
-                } else if (item === 'image_credits') {
+                if (item === 'chat_pass_1week' || item === '1week' || item === 'week') {
+                    const card = document.getElementById('product-chat-pass-1week');
+                    if (card) selectProduct(card, 'chat_pass_1week', 19900);
+                } else if (item === 'chat_pass_1month' || item === '1month' || item === 'month') {
+                    const card = document.getElementById('product-chat-pass-1month');
+                    if (card) selectProduct(card, 'chat_pass_1month', 49900);
+                } else if (item === 'image_credits' || item === '10_images') {
                     const card = document.getElementById('product-image-credits');
-                    selectProduct(card, 'image_credits', 5000);
+                    if (card) selectProduct(card, 'image_credits', 4900);
+                } else {
+                    const card = document.getElementById('product-chat-pass');
+                    if (card) selectProduct(card, 'chat_pass_1day', 4900);
                 }
             }
         });
@@ -1238,12 +1244,29 @@
                 return;
             }
 
+            let itemDesc = "1-Day Unlimited Chat Pass";
+            let itemSuccessTitle = "1-Day Chat Pass";
+            let itemSuccessDetails = "Expires in 24 hours";
+            if (selectedProduct === 'chat_pass_1week') {
+                itemDesc = "1-Week Unlimited Chat Pass";
+                itemSuccessTitle = "1-Week Chat Pass";
+                itemSuccessDetails = "Expires in 7 days (168 hours)";
+            } else if (selectedProduct === 'chat_pass_1month') {
+                itemDesc = "1-Month Unlimited Chat Pass";
+                itemSuccessTitle = "1-Month Chat Pass";
+                itemSuccessDetails = "Expires in 30 days (720 hours)";
+            } else if (selectedProduct === 'image_credits') {
+                itemDesc = "10 Premium Image Credits";
+                itemSuccessTitle = "10 Image Credits";
+                itemSuccessDetails = "Added 10 image generation credits";
+            }
+
             const options = {
                 key: razorpayKeyId,
                 amount: orderData.amount,
                 currency: orderData.currency,
                 name: "Juhi AI Companion",
-                description: selectedProduct === 'chat_pass' ? "1-Day Unlimited Chat Pass" : "10 Premium Image Credits",
+                description: itemDesc,
                 order_id: orderData.order_id,
                 prefill: {
                     name: `User ID: ${telegramId}`
@@ -1278,8 +1301,8 @@
                         
                         document.getElementById('val-order-id').innerText = paymentResponse.razorpay_order_id;
                         document.getElementById('val-payment-id').innerText = paymentResponse.razorpay_payment_id;
-                        document.getElementById('val-item').innerText = selectedProduct === 'chat_pass' ? "1-Day Chat Pass" : "10 Image Credits";
-                        document.getElementById('val-details').innerText = result.details || "Activated successfully";
+                        document.getElementById('val-item').innerText = itemSuccessTitle;
+                        document.getElementById('val-details').innerText = result.details || itemSuccessDetails;
                         
                         document.getElementById('success-panel').classList.remove('hidden');
                     } catch (verifyErr) {

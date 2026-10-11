@@ -2,6 +2,7 @@ import logging
 import json
 import asyncio
 import urllib.parse
+from datetime import datetime, timedelta
 import aiohttp
 from aiohttp import web
 import config
@@ -9,7 +10,32 @@ import database
 
 logger = logging.getLogger(__name__)
 
-async def create_instamojo_payment_request(user_id: int, item_type: str = "chat_pass", amount_inr: float = 50.0):
+
+def get_payment_confirmation_text(item_type: str, expiry_dt=None) -> str:
+    """Builds a clear, informative confirmation message including expiry date and time in IST."""
+    norm = (item_type or "").lower().strip()
+    exp_str = ""
+    if expiry_dt:
+        if isinstance(expiry_dt, str):
+            try:
+                expiry_dt = datetime.fromisoformat(expiry_dt)
+            except Exception:
+                pass
+        if isinstance(expiry_dt, datetime):
+            ist_dt = expiry_dt + timedelta(hours=5, minutes=30)
+            exp_str = f"\n\n📅 <b>Valid Until:</b> {ist_dt.strftime('%d %b %Y, %I:%M %p')} IST"
+
+    if norm in ("chat_pass_1month", "1month", "month", "monthly", "chat_pass_month", "chat_pass_30days"):
+        return f"🎉 <b>1-Month Unlimited Pass Activated!</b> 💎\n\nWelcome to 30 days of unlimited chats, deep memories, and roleplays with Juhi!{exp_str}\n\nLet's continue our conversation! 💖"
+    elif norm in ("chat_pass_1week", "1week", "week", "weekly", "chat_pass_week"):
+        return f"🎉 <b>1-Week Unlimited Pass Activated!</b> 🚀\n\nWelcome to 7 days of unlimited chats and intimate roleplays with Juhi!{exp_str}\n\nLet's continue where we left off! 💖"
+    elif norm in ("image_credits", "10_images", "images", "photos"):
+        return "✅ <b>Payment Successful!</b> 📸\n\n10 image generation credits have been added to your account! Type /draw to create photos of Juhi."
+    else:
+        return f"🎉 <b>1-Day Unlimited Pass Activated!</b> ⚡\n\nYour 24-hour access is active!{exp_str}\n\nLet's continue chatting! 💖"
+
+
+async def create_instamojo_payment_request(user_id: int, item_type: str = "chat_pass", amount_inr: float = 49.0):
     """
     Calls Instamojo REST API to create a Payment Request.
     Returns tuple: (payment_request_id, longurl, error_message)
@@ -19,6 +45,20 @@ async def create_instamojo_payment_request(user_id: int, item_type: str = "chat_
     auth_token = (config.INSTAMOJO_AUTH_TOKEN or "").strip()
     base_url = (config.WEB_CHECKOUT_URL or "https://zetagirl.zetalink.cloud").rstrip("/")
     
+    norm_type = (item_type or "").lower().strip()
+    if norm_type in ("chat_pass_1month", "1month", "month", "monthly"):
+        purpose = "Juhi AI 1-Month Chat Pass"
+        amount_inr = 499.0
+    elif norm_type in ("chat_pass_1week", "1week", "week", "weekly"):
+        purpose = "Juhi AI 1-Week Chat Pass"
+        amount_inr = 199.0
+    elif norm_type in ("image_credits", "10_images"):
+        purpose = "Juhi AI 10 Image Credits"
+        amount_inr = 49.0
+    else:
+        purpose = "Juhi AI 1-Day Chat Pass"
+        amount_inr = 49.0
+
     if not api_key or not auth_token or api_key == "YOUR_INSTAMOJO_API_KEY" or auth_token == "YOUR_INSTAMOJO_AUTH_TOKEN":
         import time
         mock_id = f"PR_mock_{user_id}_{int(time.time())}"
@@ -30,7 +70,6 @@ async def create_instamojo_payment_request(user_id: int, item_type: str = "chat_
         "X-Auth-Token": auth_token
     }
     
-    purpose = "Juhi AI 1-Day Chat Pass" if item_type == "chat_pass" else "Juhi AI 10 Image Credits"
     redirect_url = f"{base_url}/checkout/instamojo/callback?user_id={user_id}"
     webhook_url = f"{base_url}/webhook/instamojo"
     
@@ -145,10 +184,7 @@ async def handle_instamojo_webhook(request):
             tg_app = request.app.get('tg_app')
             if tg_app and unlocked_now:
                 try:
-                    if item_type == "chat_pass":
-                        confirm_text = "You're back. Your 1-day access is now active. Let's continue where we left off. 💖"
-                    else:
-                        confirm_text = "✅ <b>Payment Successful!</b>\n\n10 image credits have been added to your account!"
+                    confirm_text = get_payment_confirmation_text(item_type, expiry)
                     await tg_app.bot.send_message(
                         chat_id=telegram_id,
                         text=confirm_text,
@@ -311,22 +347,33 @@ async def handle_verify_payment(request):
                 logger.error(f"Razorpay signature verification failed: {sig_err}")
                 return web.json_response({"error": "Payment signature verification failed"}, status=400)
 
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT item_type, amount FROM payments WHERE order_id = ? OR payment_id = ?", (order_id, payment_id))
+        p_row = cursor.fetchone()
+        conn.close()
+        
+        actual_item_type = item_type
+        actual_amount = 5000
+        if p_row:
+            if p_row["item_type"] and actual_item_type in (None, "", "chat_pass"):
+                actual_item_type = p_row["item_type"]
+            if p_row["amount"]:
+                actual_amount = p_row["amount"]
+
         unlocked_now, expiry, msg_str = database.unlock_paid_access_idempotent(
             telegram_id=user_id,
             order_id=order_id,
             payment_id=payment_id,
-            item_type=item_type,
+            item_type=actual_item_type,
             gateway=gateway_used,
-            amount=5000
+            amount=actual_amount
         )
         
         tg_app = request.app.get('tg_app')
         if tg_app and unlocked_now:
             try:
-                if item_type == "chat_pass":
-                    confirm_text = "You're back! Your 1-day access is now active. Let's continue where we left off. 💖"
-                else:
-                    confirm_text = "✅ <b>Payment Successful!</b>\n\n10 image credits have been added to your account!"
+                confirm_text = get_payment_confirmation_text(actual_item_type, expiry)
                 await tg_app.bot.send_message(
                     chat_id=user_id,
                     text=confirm_text,
@@ -775,9 +822,7 @@ async def handle_api_profile(request):
         chat_mode = database.get_chat_mode(user_id)
         memories = database.get_user_memories(user_id)
         
-        billing = database.get_user_billing(user_id)
-        is_sub = database.is_chat_subscribed(user_id)
-        rem_free = max(0, config.FREE_MESSAGE_LIMIT - billing["free_messages_used"])
+        sub_info = database.get_subscription_info(user_id)
         
         return web.json_response({
             "success": True,
@@ -793,10 +838,15 @@ async def handle_api_profile(request):
             "user_nickname": u_nick,
             "ai_nickname": ai_nick,
             "memory_count": len(memories),
-            "is_subscribed": is_sub,
-            "remaining_free_messages": rem_free,
-            "image_credits": billing.get("image_credits", 0),
-            "chat_expires_at": billing.get("chat_expires_at")
+            "is_subscribed": sub_info["is_subscribed"],
+            "remaining_free_messages": sub_info["free_messages_remaining"],
+            "image_credits": sub_info["image_credits"],
+            "chat_expires_at": sub_info["chat_expires_at"],
+            "expires_at_ist": sub_info["expires_at_ist"],
+            "expiry_date_str": sub_info["expiry_date_str"],
+            "expiry_time_str": sub_info["expiry_time_str"],
+            "subscription_remaining_text": sub_info["remaining_text"],
+            "subscription_plan": sub_info["plan_name"]
         })
     except Exception as e:
         logger.error(f"Error in handle_api_profile: {e}")
@@ -1073,9 +1123,17 @@ async def handle_checkout_initiate(request):
             payment_gateway="instamojo"
         )
 
+        norm_type = (item_type or "").lower().strip()
+        if norm_type in ("chat_pass_1month", "1month", "month", "monthly"):
+            amount_inr = 499.0
+        elif norm_type in ("chat_pass_1week", "1week", "week", "weekly"):
+            amount_inr = 199.0
+        else:
+            amount_inr = 49.0
+        amount_paise = int(amount_inr * 100)
+
         # Create Instamojo Payment Request
-        order_id, pay_url, err = await create_instamojo_payment_request(user_id, item_type, amount_inr=50.0)
-        amount_paise = 5000
+        order_id, pay_url, err = await create_instamojo_payment_request(user_id, item_type, amount_inr=amount_inr)
 
         # Register transaction order in payments table & log payment_order_created event
         database.create_payment_order(user_id, order_id=order_id, amount=amount_paise, item_type=item_type, payment_gateway="instamojo")
@@ -1396,10 +1454,7 @@ async def handle_instamojo_callback(request):
             
             if tg_app and unlocked_now and telegram_id > 0:
                 try:
-                    if item_type == "chat_pass":
-                        confirm_text = "You're back! Your 1-day access is now active. Let's continue where we left off. 💖"
-                    else:
-                        confirm_text = "✅ <b>Payment Successful!</b>\n\n10 image credits have been added to your account!"
+                    confirm_text = get_payment_confirmation_text(item_type, expiry)
                     await tg_app.bot.send_message(
                         chat_id=telegram_id,
                         text=confirm_text,

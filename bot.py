@@ -116,23 +116,21 @@ def build_profile_view(user_id):
     memories = database.get_user_memories(user_id)
     mem_count = len(memories)
     
-    billing = database.get_user_billing(user_id)
-    if database.is_chat_subscribed(user_id):
-        expiry = datetime.fromisoformat(billing["chat_expires_at"])
-        remaining = expiry - datetime.utcnow()
-        hours, remainder = divmod(remaining.seconds, 3600)
-        minutes, _ = divmod(remainder, 60)
-        if remaining.days > 0:
-            hours += remaining.days * 24
-        chat_status = f"✅ <b>Active</b> (expires in {hours}h {minutes}m)"
+    sub_info = database.get_subscription_info(user_id)
+    if sub_info["is_subscribed"]:
+        chat_status = (
+            f"✅ <b>Active ({sub_info['plan_name']})</b>\n"
+            f"   📅 <b>Expires:</b> <code>{sub_info['expires_at_ist']}</code> (in {sub_info['remaining_text']})"
+        )
     else:
-        remaining_free = config.FREE_MESSAGE_LIMIT - billing["free_messages_used"]
-        if remaining_free > 0:
-            chat_status = f"⏳ <b>Free Trial</b> ({remaining_free}/10 free messages left)"
+        if sub_info["chat_expires_at"]:
+            chat_status = f"❌ <b>Expired</b> (ended on <code>{sub_info['expires_at_ist']}</code>)"
+        elif sub_info["free_messages_remaining"] > 0:
+            chat_status = f"⏳ <b>Free Trial</b> ({sub_info['free_messages_remaining']}/{config.FREE_MESSAGE_LIMIT} free messages left)"
         else:
-            chat_status = "❌ <b>Trial Expired</b> (Purchase ₹50 pass to unlock)"
+            chat_status = "❌ <b>Trial Expired</b> (Purchase pass to continue chatting)"
             
-    image_credits = billing["image_credits"]
+    image_credits = sub_info["image_credits"]
     image_status = f"📸 <b>{image_credits} Image Credits</b>"
     
     profile_text = (
@@ -146,7 +144,7 @@ def build_profile_view(user_id):
         f"🤖 <b>What you call her:</b> <code>{html.escape(ai_nick)}</code>\n"
         f"🧠 <b>Memory Bank:</b> <code>{mem_count} details remembered</code>\n\n"
         f"💳 <b>BILLING & SUBSCRIPTION</b> 💳\n"
-        f"• <b>Chat Subscription:</b> {chat_status}\n"
+        f"• <b>Chat Subscription:</b>\n  {chat_status}\n"
         f"• <b>Image Generation:</b> {image_status}\n\n"
         f"<i>Switch between Caring Best Friend and Intimate Girlfriend modes anytime!</i>"
     )
@@ -157,17 +155,71 @@ def build_profile_view(user_id):
             InlineKeyboardButton("🧠 Memory Bank", callback_data="view_memories")
         ],
         [
+            InlineKeyboardButton("📅 Expiry & Subscription Info", callback_data="view_subscription"),
             InlineKeyboardButton("✏️ Edit Nicknames", callback_data="menu_nicknames")
         ],
         [
-            InlineKeyboardButton("💬 Buy Chat Pass (₹50)", callback_data="buy_chat_menu"),
-            InlineKeyboardButton("📸 Buy 10 Images (₹50)", callback_data="buy_image_menu")
+            InlineKeyboardButton("💬 Buy / Extend Chat Pass", callback_data="buy_chat_menu"),
+            InlineKeyboardButton("📸 Buy 10 Images (₹49)", callback_data="buy_image_menu")
         ],
         [
             InlineKeyboardButton("🔄 Reset Chat History", callback_data="menu_reset_history")
         ]
     ]
     return profile_text, InlineKeyboardMarkup(keyboard)
+
+
+def build_subscription_view(user_id):
+    """Constructs a detailed subscription and expiry card for the user."""
+    sub_info = database.get_subscription_info(user_id)
+    
+    if sub_info["is_subscribed"]:
+        sub_text = (
+            f"👑 <b>JUHI AI SUBSCRIPTION DETAILS</b> 👑\n\n"
+            f"🟢 <b>Status:</b> <b>ACTIVE</b>\n"
+            f"💎 <b>Current Plan:</b> <b>{sub_info['plan_name']}</b>\n\n"
+            f"📅 <b>Expiry Date:</b> <code>{sub_info['expiry_date_str']}</code>\n"
+            f"⏰ <b>Expiry Time:</b> <code>{sub_info['expiry_time_str']}</code>\n"
+            f"⏳ <b>Time Remaining:</b> <b>{sub_info['remaining_text']}</b>\n\n"
+            f"📸 <b>Image Credits:</b> <b>{sub_info['image_credits']}</b> remaining (use /draw)\n\n"
+            f"💖 <i>You have full unlimited texting, intimate roleplays, and persistent memories unlocked!</i>"
+        )
+        keyboard = [
+            [InlineKeyboardButton("🚀 Extend / Upgrade Plan", callback_data="buy_chat_menu")],
+            [InlineKeyboardButton("📸 Buy Image Credits", callback_data="buy_image_menu")],
+            [InlineKeyboardButton("🔙 Back to Profile", callback_data="profile_back")]
+        ]
+    else:
+        if sub_info["chat_expires_at"]:
+            sub_text = (
+                f"💳 <b>JUHI AI SUBSCRIPTION DETAILS</b> 💳\n\n"
+                f"🔴 <b>Status:</b> <b>EXPIRED</b>\n"
+                f"📅 <b>Expired On:</b> <code>{sub_info['expires_at_ist']}</code>\n\n"
+                f"📸 <b>Image Credits:</b> <b>{sub_info['image_credits']}</b> remaining\n\n"
+                f"⚠️ <i>Your chat pass has ended. Renew now to continue chatting with Juhi without losing any memories!</i>"
+            )
+        else:
+            sub_text = (
+                f"💳 <b>JUHI AI SUBSCRIPTION DETAILS</b> 💳\n\n"
+                f"⏳ <b>Status:</b> <b>FREE TRIAL</b>\n"
+                f"💬 <b>Messages Left:</b> <b>{sub_info['free_messages_remaining']} / {config.FREE_MESSAGE_LIMIT}</b>\n"
+                f"📸 <b>Image Credits:</b> <b>{sub_info['image_credits']}</b> remaining\n\n"
+                f"✨ <i>Unlock unlimited instant messaging with Juhi with a 1-Day, 1-Week, or 1-Month pass!</i>"
+            )
+        keyboard = [
+            [InlineKeyboardButton("⚡ Unlock Unlimited Pass", callback_data="buy_chat_menu")],
+            [InlineKeyboardButton("📸 Buy Image Credits", callback_data="buy_image_menu")],
+            [InlineKeyboardButton("🔙 Back to Profile", callback_data="profile_back")]
+        ]
+    return sub_text, InlineKeyboardMarkup(keyboard)
+
+
+async def subscription_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Displays detailed subscription status, plan name, and exact expiry date/time in IST."""
+    user = update.effective_user
+    database.setup_user(user.id, user.username, user.first_name)
+    sub_text, reply_markup = build_subscription_view(user.id)
+    await update.message.reply_text(sub_text, reply_markup=reply_markup, parse_mode="HTML")
 
 
 async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -306,14 +358,17 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🤖 <b>Juhi Bot - Quick Help</b>\n\n"
         "Here are the commands you can use to control the bot:\n"
         "• /start - Greet Juhi and begin chatting.\n"
-        "• /profile - Check relationship level, XP, and nicknames.\n"
-        "• /roleplay - Switch Juhi's roleplay scenario (e.g. Long Drive, Forest Cottage, Alone at Home).\n"
-        "• /draw &lt;prompt&gt; - Generate custom images of Juhi using Venice lustify-v7.\n"
+        "• /profile - Check relationship level, XP, nicknames & status.\n"
+        "• /subscription - View subscription status, plan & exact expiry date/time.\n"
+        "• /mode - Toggle Caring Best Friend vs Intimate Girlfriend mode.\n"
+        "• /roleplay - Switch Juhi's roleplay scenario.\n"
+        "• /memories - View all remembered personal details in Juhi's memory bank.\n"
+        "• /draw &lt;prompt&gt; - Generate custom images of Juhi.\n"
         "• /reset - Clear conversation history with Juhi.\n"
         "• /help - Display this help text.\n\n"
         "<b>💡 Chatting Tips:</b>\n"
         "- Just send normal messages to chat. Each reply from you increases your XP.\n"
-        "- You can ask Juhi directly to send you a photo, and she will generate it!"
+        "- You can ask Juhi directly to send you a selfie or picture anytime!"
     )
     await update.message.reply_text(help_text, parse_mode="HTML")
 
@@ -586,6 +641,12 @@ async def handle_callback_query(update: Update, context: ContextTypes.DEFAULT_TY
         USER_STATES.pop(user_id, None)
         profile_text, reply_markup = build_profile_view(user_id)
         await query.message.edit_text(profile_text, reply_markup=reply_markup, parse_mode="HTML")
+
+    # 5b. View Subscription Details & Expiry
+    elif data == "view_subscription":
+        USER_STATES.pop(user_id, None)
+        sub_text, reply_markup = build_subscription_view(user_id)
+        await query.message.edit_text(sub_text, reply_markup=reply_markup, parse_mode="HTML")
 
     # Mode and Memory Bank Callbacks
     elif data == "toggle_chat_mode":
@@ -1356,6 +1417,7 @@ async def post_init(application: Application):
     commands = [
         BotCommand("start", "Start chatting with Juhi"),
         BotCommand("profile", "View profile, relationship level & status"),
+        BotCommand("subscription", "Check subscription status & expiry date/time"),
         BotCommand("roleplay", "Switch companion persona"),
         BotCommand("mode", "Toggle Normal vs Intimate chat mode"),
         BotCommand("memories", "View stored memory bank"),
@@ -1391,6 +1453,9 @@ def main():
     # Add Command Handlers
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("profile", profile_command))
+    application.add_handler(CommandHandler("subscription", subscription_command))
+    application.add_handler(CommandHandler("expiry", subscription_command))
+    application.add_handler(CommandHandler("status", subscription_command))
     application.add_handler(CommandHandler("roleplay", roleplay_command))
     application.add_handler(CommandHandler("mode", mode_command))
     application.add_handler(CommandHandler("memories", memories_command))

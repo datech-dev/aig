@@ -4,7 +4,8 @@ import re
 import json
 import logging
 from datetime import datetime, timedelta
-from config import PERSONAS, get_relationship_status, INITIAL_IMAGE_CREDITS, CHAT_PASS_DURATION_HOURS
+import config
+from config import PERSONAS, get_relationship_status, INITIAL_IMAGE_CREDITS, CHAT_PASS_DURATION_HOURS, FREE_MESSAGE_LIMIT
 
 logger = logging.getLogger(__name__)
 
@@ -708,6 +709,85 @@ def is_chat_subscribed(telegram_id):
         return False
 
 
+def get_subscription_info(telegram_id):
+    """
+    Returns rich, user-friendly subscription status including:
+    - is_subscribed: bool
+    - chat_expires_at: ISO string in UTC
+    - expires_at_ist: formatted date and time in IST (UTC+5:30)
+    - expiry_date_str: e.g. "Sunday, 18 Oct 2026"
+    - expiry_time_str: e.g. "03:45 PM IST"
+    - remaining_text: e.g. "6 days, 21 hours"
+    - remaining_hours: int
+    - plan_name: e.g. "1-Week Pass" / "1-Month Pass" / "1-Day Pass"
+    - free_messages_remaining: int
+    - image_credits: int
+    """
+    billing = get_user_billing(telegram_id)
+    now_utc = datetime.utcnow()
+    exp_iso = billing.get("chat_expires_at")
+    
+    is_sub = False
+    expires_at_ist = None
+    expiry_date_str = None
+    expiry_time_str = None
+    remaining_text = None
+    remaining_hours = 0
+    plan_name = "None"
+    
+    if exp_iso:
+        try:
+            expiry_dt = datetime.fromisoformat(exp_iso)
+            ist_dt = expiry_dt + timedelta(hours=5, minutes=30)
+            expires_at_ist = ist_dt.strftime("%d %b %Y, %I:%M %p IST")
+            expiry_date_str = ist_dt.strftime("%A, %d %B %Y")
+            expiry_time_str = ist_dt.strftime("%I:%M %p IST")
+            
+            if expiry_dt > now_utc:
+                is_sub = True
+                diff = expiry_dt - now_utc
+                total_secs = int(diff.total_seconds())
+                days = diff.days
+                hrs = (diff.seconds // 3600)
+                mins = (diff.seconds % 3600) // 60
+                remaining_hours = int(total_secs // 3600)
+                
+                if days > 0:
+                    remaining_text = f"{days}d {hrs}h {mins}m"
+                elif hrs > 0:
+                    remaining_text = f"{hrs}h {mins}m"
+                else:
+                    remaining_text = f"{mins}m"
+                
+                if days >= 20:
+                    plan_name = "1-Month Unlimited Pass"
+                elif days >= 4:
+                    plan_name = "1-Week Unlimited Pass"
+                else:
+                    plan_name = "1-Day Unlimited Pass"
+            else:
+                remaining_text = "Expired"
+        except Exception:
+            pass
+            
+    rem_free = max(0, config.FREE_MESSAGE_LIMIT - billing["free_messages_used"])
+    
+    return {
+        "is_subscribed": is_sub,
+        "chat_expires_at": exp_iso,
+        "expires_at_ist": expires_at_ist,
+        "expiry_date_str": expiry_date_str,
+        "expiry_time_str": expiry_time_str,
+        "remaining_text": remaining_text,
+        "remaining_hours": remaining_hours,
+        "plan_name": plan_name,
+        "free_messages_used": billing["free_messages_used"],
+        "free_messages_remaining": rem_free,
+        "free_message_limit": config.FREE_MESSAGE_LIMIT,
+        "image_credits": billing.get("image_credits", 0)
+    }
+
+
 def grant_image_credits(telegram_id, amount=10):
     """Adds a number of image credits to the user's balance."""
     # Ensure user exists in billing
@@ -1036,6 +1116,34 @@ def unlock_paid_access_idempotent(telegram_id, order_id, payment_id, item_type="
     now_dt = datetime.utcnow()
     now_str = now_dt.strftime("%Y-%m-%d %H:%M:%S")
 
+    # 1. Recover recorded order details if already created in database
+    cursor.execute("""
+        SELECT item_type, amount FROM payments
+        WHERE (order_id = ? AND order_id IS NOT NULL AND order_id != '')
+           OR (payment_id = ? AND payment_id IS NOT NULL AND payment_id != '')
+    """, (order_id, payment_id))
+    existing_row = cursor.fetchone()
+
+    resolved_item_type = item_type
+    if existing_row:
+        rec_type = existing_row["item_type"]
+        rec_amt = existing_row["amount"]
+        if rec_type and (not resolved_item_type or resolved_item_type in ("chat_pass", "")):
+            resolved_item_type = rec_type
+        if (not amount or amount == 5000) and rec_amt:
+            amount = rec_amt
+
+    # 2. Safety net: infer plan from payment amount if ambiguous
+    try:
+        amt_val = float(amount or 0)
+        # 199 INR = 19900 paise, 499 INR = 49900 paise
+        if amt_val in (19900, 199, 199.0):
+            resolved_item_type = "chat_pass_1week"
+        elif amt_val in (49900, 499, 499.0):
+            resolved_item_type = "chat_pass_1month"
+    except Exception:
+        pass
+
     # Mark payments table row as SUCCESS
     try:
         cursor.execute("""
@@ -1043,23 +1151,27 @@ def unlock_paid_access_idempotent(telegram_id, order_id, payment_id, item_type="
             SET status = 'SUCCESS',
                 payment_id = COALESCE(?, payment_id),
                 payment_method = COALESCE(?, payment_method),
+                item_type = COALESCE(?, item_type),
+                amount = COALESCE(?, amount),
                 paid_at = ?,
                 access_unlocked_at = ?,
                 updated_at = ?
             WHERE (order_id = ? AND order_id IS NOT NULL AND order_id != '')
                OR (payment_id = ? AND payment_id IS NOT NULL AND payment_id != '')
-        """, (payment_id, payment_method, now_str, now_str, now_str, order_id, payment_id))
+        """, (payment_id, payment_method, resolved_item_type, amount, now_str, now_str, now_str, order_id, payment_id))
     except sqlite3.OperationalError:
         cursor.execute("""
             UPDATE payments
             SET status = 'SUCCESS',
                 payment_id = COALESCE(?, payment_id),
                 payment_method = COALESCE(?, payment_method),
+                item_type = COALESCE(?, item_type),
+                amount = COALESCE(?, amount),
                 paid_at = ?,
                 access_unlocked_at = ?
             WHERE (order_id = ? AND order_id IS NOT NULL AND order_id != '')
                OR (payment_id = ? AND payment_id IS NOT NULL AND payment_id != '')
-        """, (payment_id, payment_method, now_str, now_str, order_id, payment_id))
+        """, (payment_id, payment_method, resolved_item_type, amount, now_str, now_str, order_id, payment_id))
     
     if cursor.rowcount == 0:
         try:
@@ -1068,26 +1180,27 @@ def unlock_paid_access_idempotent(telegram_id, order_id, payment_id, item_type="
                     telegram_id, user_id, order_id, payment_id, amount, currency, item_type,
                     status, payment_gateway, payment_method, paid_at, access_unlocked_at, created_at, updated_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, 'SUCCESS', ?, ?, ?, ?, ?, ?)
-            """, (telegram_id, telegram_id, order_id, payment_id, amount, currency, item_type, gateway, payment_method, now_str, now_str, now_str, now_str))
+            """, (telegram_id, telegram_id, order_id, payment_id, amount, currency, resolved_item_type, gateway, payment_method, now_str, now_str, now_str, now_str))
         except sqlite3.OperationalError:
             cursor.execute("""
                 INSERT INTO payments (
                     telegram_id, user_id, order_id, payment_id, amount, currency, item_type,
                     status, payment_gateway, payment_method, paid_at, access_unlocked_at, created_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, 'SUCCESS', ?, ?, ?, ?, ?)
-            """, (telegram_id, telegram_id, order_id, payment_id, amount, currency, item_type, gateway, payment_method, now_str, now_str, now_str))
+            """, (telegram_id, telegram_id, order_id, payment_id, amount, currency, resolved_item_type, gateway, payment_method, now_str, now_str, now_str))
 
     conn.commit()
     conn.close()
 
-    mark_payment_intent_completed(telegram_id, payment_link_id=order_id or payment_id, item_type=item_type)
+    mark_payment_intent_completed(telegram_id, payment_link_id=order_id or payment_id, item_type=resolved_item_type)
 
+    norm_item = (resolved_item_type or "").lower().strip()
     expiry = None
-    if item_type in ("image_credits", "10_images"):
+    if norm_item in ("image_credits", "10_images", "images", "photos"):
         grant_image_credits(telegram_id, amount=10)
-    elif item_type in ("chat_pass_1week", "1week"):
+    elif norm_item in ("chat_pass_1week", "1week", "week", "weekly", "chat_pass_week"):
         expiry = grant_chat_pass(telegram_id, hours=168)  # 1 week (7 days)
-    elif item_type in ("chat_pass_1month", "1month"):
+    elif norm_item in ("chat_pass_1month", "1month", "month", "monthly", "chat_pass_month", "chat_pass_30days"):
         expiry = grant_chat_pass(telegram_id, hours=720)  # 1 month (30 days)
     else:
         expiry = grant_chat_pass(telegram_id, hours=CHAT_PASS_DURATION_HOURS)  # 1 day (24 hours)
