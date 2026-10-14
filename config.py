@@ -7,7 +7,7 @@ load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ADMIN_TELEGRAM_ID = os.getenv("ADMIN_TELEGRAM_ID")
 VENICE_API_KEY = os.getenv("VENICE_API_KEY")
-VENICE_MODEL = os.getenv("VENICE_MODEL", "gemini-3-8-flash")
+VENICE_MODEL = os.getenv("VENICE_MODEL", "venice-uncensored-role-play")
 VENICE_IMAGE_MODEL = os.getenv("VENICE_IMAGE_MODEL", "fluently-xl")
 
 # Payment Gateway Credentials (Razorpay & Instamojo)

@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 VENICE_API_KEY = os.getenv("VENICE_API_KEY")
-VENICE_MODEL = os.getenv("VENICE_MODEL", "gemma-4-uncensored")
+VENICE_MODEL = os.getenv("VENICE_MODEL", "venice-uncensored-role-play")
 
 print("Key:", VENICE_API_KEY)
 print("Model:", VENICE_MODEL)
