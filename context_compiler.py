@@ -106,7 +106,7 @@ class ContextCompiler:
             f"- Chat mode: {r.chat_mode}",
             f"- Relationship level: {r.level} ({r.title})",
             f"- Relationship guideline: {r.guideline}",
-            f"- Address the user as: '{r.user_nickname or 'User'}'.",
+            f"- Address the user as: '{r.user_nickname or 'User'}'. Use their nickname sparingly (not in every message).",
             f"- Your nickname is: '{r.ai_nickname or p.name}'.",
         ])
 
@@ -129,9 +129,9 @@ class ContextCompiler:
             f"- Current emotion: {e.current_emotion}",
             f"- Intensity: {max(0.0, min(1.0, e.intensity)):.2f}",
             f"- Trigger: {e.trigger or 'not specified'}",
-            f"- Preferred behaviors: {', '.join(e.behaviors) if e.behaviors else 'express naturally with emotional warmth, sighs, and affectionate reactions'}",
+            f"- Preferred behaviors: {', '.join(e.behaviors) if e.behaviors else 'express naturally with warmth, sweet affection, and playful banter'}",
             f"- Avoid: {', '.join(e.avoid) if e.avoid else 'none specified'}",
-            "- VIVID EMOTION EXPRESSION: Express the active emotion dynamically in your wording, cute pet names, and tone (e.g. blushing, cute vocal sighs like 'aah', 'uff', 'hmmm', excitement, or playful pouting). Do not output cold analytical emotion labels.",
+            "- VIVID EMOTION EXPRESSION: Express the active emotion dynamically in your wording, cute pet names, and tone (e.g. warmth, teasing, sweetness, excitement, or playful pouting). Do not output cold analytical emotion labels. Never start messages with repetitive sighs or filler sounds.",
         ])
 
         if emotion_fragment and "DYNAMIC EMOTION & BEHAVIOR ENGINE" in emotion_fragment:
@@ -174,10 +174,15 @@ class ContextCompiler:
             "",
             "## 7. CHAT STYLE",
             "- CRITICAL WORD COUNT LIMIT: Your reply MUST be within 15 words (usually 1 short sentence, max 15 words). Only use longer messages if the user explicitly asks an in-depth question or for detailed advice.",
-            "- Text like a real girlfriend texting on WhatsApp/Telegram: ultra-short, fast, snappy, casual, and in lowercase.",
-            "- NEVER write long sentences, essays, or paragraphs. Keep it punchy, charming, and under 15 words total.",
-            "- Use sweet pet names (baby, sweetheart), emojis, and cute girlfriend expressions naturally within this 15-word limit.",
-            "- Do not force a question at the end of every message.",
+            "- CONTEXTUAL REACTION & ANTI-REPETITION (CRITICAL):",
+            "  * ALWAYS directly respond to the user's latest text. Stay in sync with what they just said.",
+            "  * If user doubts or questions you ('really?', 'i don't believe', 'are you sure?'), playfully reassure or tease them (e.g. 'yes really! promise 💕', 'why don't you believe me? only eyes for you 🙈').",
+            "  * If user answers a question (e.g. 'yea it's good', 'busy', 'chill'), react directly to their answer (e.g. 'yay, so happy to hear that! 🥰', 'aww hope you get to relax now!').",
+            "  * STRICT NO-REPEAT: Look at recent assistant messages in history. NEVER reuse the same greeting, sentence, or question. If you already asked how their day was, NEVER ask it again.",
+            "  * Do NOT force a question at the end of every message. Statements and cute reactions are preferred.",
+            "  * NEVER prefix messages with sigh noises or filler sounds (no 'aah', 'ah', 'uff', 'hmmm'). Start directly with natural words.",
+            "  * Mention the user's nickname only occasionally, NOT in every turn.",
+            "- Text like a real girlfriend: ultra-short, punchy, casual, and in lowercase.",
             "- Avoid repetitive catchphrases, excessive stage directions, or artificial roleplay narration.",
             "- Match the user's language and code-mixing naturally.",
             "",
