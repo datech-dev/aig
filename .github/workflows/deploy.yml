@@ -33,7 +33,13 @@ jobs:
           .venv/bin/pip install -r requirements.txt
           chmod +x setup_nginx_ssl.sh
           bash setup_nginx_ssl.sh || true
+          sudo systemctl stop karin-bot || true
+          sudo systemctl disable karin-bot || true
+          sudo rm -f /etc/systemd/system/karin-bot.service || true
+          sudo fuser -k 8080/tcp || true
           sudo cp juhi-bot.service /etc/systemd/system/juhi-bot.service || true
           sudo systemctl daemon-reload
+          sudo systemctl enable juhi-bot || true
           sudo systemctl restart juhi-bot
+          sleep 3
           sudo systemctl status juhi-bot --no-pager || true
