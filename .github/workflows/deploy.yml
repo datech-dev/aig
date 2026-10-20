@@ -23,7 +23,7 @@ jobs:
           grep -q "^RAZORPAY_KEY_ID=" .env && sed -i 's|^RAZORPAY_KEY_ID=.*|RAZORPAY_KEY_ID=rzp_live_TkKVJLqWR1OmdL|' .env || echo "RAZORPAY_KEY_ID=rzp_live_TkKVJLqWR1OmdL" >> .env
           grep -q "^RAZORPAY_KEY_SECRET=" .env && sed -i 's|^RAZORPAY_KEY_SECRET=.*|RAZORPAY_KEY_SECRET=C9xubu4iHN8PaMF8Mcw11N8O|' .env || echo "RAZORPAY_KEY_SECRET=C9xubu4iHN8PaMF8Mcw11N8O" >> .env
           grep -q "^PAYMENT_GATEWAY=" .env && sed -i 's|^PAYMENT_GATEWAY=.*|PAYMENT_GATEWAY=razorpay|' .env || echo "PAYMENT_GATEWAY=razorpay" >> .env
-          grep -q "^VENICE_MODEL=" .env && sed -i 's|^VENICE_MODEL=.*|VENICE_MODEL=venice-uncensored-role-play|' .env || echo "VENICE_MODEL=venice-uncensored-role-play" >> .env
+          grep -q "^VENICE_MODEL=" .env && sed -i 's|^VENICE_MODEL=.*|VENICE_MODEL=aion-labs-aion-3-5-mini|' .env || echo "VENICE_MODEL=aion-labs-aion-3-5-mini" >> .env
           if [ -n "${{ secrets.TELEGRAM_BOT_TOKEN }}" ]; then
             grep -q "^TELEGRAM_BOT_TOKEN=" .env && sed -i 's|^TELEGRAM_BOT_TOKEN=.*|TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}|' .env || echo "TELEGRAM_BOT_TOKEN=${{ secrets.TELEGRAM_BOT_TOKEN }}" >> .env
           fi
