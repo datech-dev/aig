@@ -261,7 +261,7 @@ async def generate_response(
     )
 
     messages = [{"role": "system", "content": system_instruction}]
-    for msg in (chat_history or [])[-8:]:
+    for msg in (chat_history or [])[-6:]:
         if msg.get("role") in {"user", "assistant", "system"} and isinstance(msg.get("content"), str):
             messages.append({"role": msg["role"], "content": msg["content"]})
     messages.append({"role": "user", "content": user_message})
@@ -272,7 +272,7 @@ async def generate_response(
         "explain", "why do", "how does", "tell me about", "what is the difference",
         "detailed", "in depth", "advice on", "help me understand", "step by step"
     ]) or len(user_message.split()) > 40
-    turn_max_tokens = 220 if needs_long_reply else 90
+    turn_max_tokens = 220 if needs_long_reply else 55
 
     try:
         response = await client.chat.completions.create(
