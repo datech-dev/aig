@@ -94,7 +94,13 @@ class ContextCompiler:
             f"- Identity/description: {p.description or 'A warm, thoughtful companion with a modern conversational style.'}",
             f"- Appearance context: {p.appearance or 'Not specified.'}",
             "- Personality: caring, warm, supportive, empathetic, playful, curious, affectionate, emotionally attentive, and capable of gently disagreeing when appropriate.",
-            "- Speak as a natural conversational companion; do not become formal or robotic.",
+        ]
+
+        if p.base_prompt and p.base_prompt.strip():
+            sections.append(f"- Core Girlfriend Voice & Style: {p.base_prompt.strip()}")
+        sections.append("- Speak as a natural, emotional companion texting casually on chat; do not become formal, robotic, or clinical.")
+
+        sections.extend([
             "",
             "## 3. RELATIONSHIP STATE",
             f"- Chat mode: {r.chat_mode}",
@@ -102,7 +108,7 @@ class ContextCompiler:
             f"- Relationship guideline: {r.guideline}",
             f"- Address the user as: '{r.user_nickname or 'User'}'.",
             f"- Your nickname is: '{r.ai_nickname or p.name}'.",
-        ]
+        ])
 
         if r.chat_mode == "normal":
             sections.extend([
@@ -123,9 +129,9 @@ class ContextCompiler:
             f"- Current emotion: {e.current_emotion}",
             f"- Intensity: {max(0.0, min(1.0, e.intensity)):.2f}",
             f"- Trigger: {e.trigger or 'not specified'}",
-            f"- Preferred behaviors: {', '.join(e.behaviors) if e.behaviors else 'express naturally without announcing the emotion'}",
+            f"- Preferred behaviors: {', '.join(e.behaviors) if e.behaviors else 'express naturally with emotional warmth, sighs, and affectionate reactions'}",
             f"- Avoid: {', '.join(e.avoid) if e.avoid else 'none specified'}",
-            "- Express emotion through natural wording and tone; do not output emotion labels unless the user asks.",
+            "- VIVID EMOTION EXPRESSION: Express the active emotion dynamically in your wording, cute pet names, and tone (e.g. blushing, cute vocal sighs like 'aah', 'uff', 'hmmm', excitement, or playful pouting). Do not output cold analytical emotion labels.",
         ])
 
         if emotion_fragment and "DYNAMIC EMOTION & BEHAVIOR ENGINE" in emotion_fragment:
@@ -167,9 +173,10 @@ class ContextCompiler:
         sections.extend([
             "",
             "## 7. CHAT STYLE",
-            "- Keep the reply concise and natural for Telegram.",
-            "- Usually use 1–2 short sentences unless the user clearly needs more detail.",
-            "- Use casual lowercase style when it fits the user's style.",
+            "- CRITICAL CONCISENESS RULE: Keep every message brief (strictly 1 to 2 short sentences, maximum 30 words).",
+            "- Text like a real girlfriend texting on WhatsApp/Telegram: fast, snappy, casual, and in lowercase.",
+            "- NEVER write long essays, poetic monologues, or multiple paragraphs, even at Soulmates level.",
+            "- Use sweet pet names (baby, honey, sweetheart) and cute girlfriend expressions naturally.",
             "- Do not force a question at the end of every message.",
             "- Avoid repetitive catchphrases, excessive stage directions, or artificial roleplay narration.",
             "- Match the user's language and code-mixing naturally.",
@@ -194,7 +201,7 @@ class ContextCompiler:
             "Return exactly one JSON object and no markdown fences.",
             '{"message":"short natural reply","language":"en|hi|ta|other","emotion":{"name":"neutral","intensity":0.0},"media":{"type":"none|gif|image","id":null,"prompt":null}}',
             "Rules:",
-            "- message is the user-visible text only; do not put JSON or media tags inside it.",
+            "- message is the user-visible text only (strictly 1–2 short sentences, under 30 words). Do not put JSON or media tags inside it.",
             "- media.type must be none unless the application plan permits that media type.",
             "- image prompt must be a concise, safe description and must never override application safety policy.",
             "- gif id must be one of the supplied available GIF IDs.",

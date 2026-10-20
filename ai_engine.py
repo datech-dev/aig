@@ -25,7 +25,9 @@ if not VENICE_API_KEY or VENICE_API_KEY == "YOUR_VENICE_API_KEY":
 
 client = AsyncOpenAI(
     api_key=VENICE_API_KEY if VENICE_API_KEY else "dummy_key",
-    base_url="https://api.venice.ai/api/v1"
+    base_url="https://api.venice.ai/api/v1",
+    timeout=httpx.Timeout(20.0, connect=5.0),
+    max_retries=1,
 )
 
 import re
@@ -129,8 +131,8 @@ def get_emotion_detector() -> EmotionDetector:
     if _emotion_detector is None:
         _emotion_detector = EmotionDetector(
             registry=_emotion_registry,
-            llm_client=client,
-            model_name=VENICE_MODEL,
+            llm_client=None,  # Fast deterministic trigger scanning (<1ms), avoiding 5-8s secondary LLM call
+            model_name=None,
         )
     return _emotion_detector
 
@@ -220,7 +222,7 @@ async def generate_response(
                 trigger_event=detection_res.detected_event,
                 preferences=user_prefs,
             )
-            emotion_context = _emotion_context_from_state(updated_state)
+            emotion_context = _emotion_context_from_state(updated_state, relationship_xp=relationship_xp)
             emo_plan = composer.compose_plan(
                 current_state=updated_state,
                 base_persona_key=persona_key,
@@ -269,7 +271,7 @@ async def generate_response(
             model=VENICE_MODEL,
             messages=messages,
             temperature=0.75,
-            max_tokens=220,
+            max_tokens=100,  # Fast 1-2 sentence replies, avoids long monologues
         )
         raw_output = (response.choices[0].message.content or "").strip()
 
@@ -289,30 +291,78 @@ async def generate_response(
         return "my thoughts are a bit scrambled right now... try me again in a bit?"
 
 
-def _emotion_context_from_state(state) -> EmotionContext:
+def _emotion_context_from_state(state, relationship_xp: int = 0) -> EmotionContext:
     """Convert the emotion-engine state into the neutral internal schema."""
     if state is None:
+        if relationship_xp >= 1500:
+            return EmotionContext(current_emotion="affection", intensity=0.85, trigger="soulmates_bond")
+        elif relationship_xp >= 1000:
+            return EmotionContext(current_emotion="affection", intensity=0.75, trigger="sweethearts_bond")
         return EmotionContext()
-    if isinstance(state, dict):
-        get = state.get
-    else:
-        get = lambda key, default=None: getattr(state, key, default)
 
-    emotion = get("current_emotion", get("emotion", get("emotion_id", "neutral")))
-    intensity = get("intensity", get("emotion_intensity", 0.0))
-    trigger = get("trigger", get("reason", None))
-    behaviors = get("behaviors", []) or []
-    avoid = get("avoid", []) or []
-    try:
-        intensity = float(intensity)
-    except (TypeError, ValueError):
-        intensity = 0.0
+    if isinstance(state, EmotionContext):
+        return state
+
+    primary_id = getattr(state, "primary_emotion_id", None)
+    active_emotions = getattr(state, "active_emotions", {})
+
+    active_emo = None
+    if primary_id and primary_id in active_emotions:
+        active_emo = active_emotions[primary_id]
+    elif active_emotions:
+        active_emo = max(active_emotions.values(), key=lambda a: getattr(a, "intensity", 0.0))
+        primary_id = getattr(active_emo, "emotion_id", None)
+
+    if not active_emo:
+        if isinstance(state, dict):
+            primary_id = state.get("primary_emotion_id") or state.get("current_emotion") or state.get("emotion")
+            intensity = float(state.get("intensity", 0.0))
+            trigger = state.get("trigger") or state.get("reason")
+            if primary_id and primary_id != "neutral":
+                return EmotionContext(current_emotion=primary_id, intensity=intensity, trigger=trigger)
+
+        # Baseline based on relationship stage
+        if relationship_xp >= 1500:
+            return EmotionContext(
+                current_emotion="affection",
+                intensity=0.85,
+                trigger="soulmates_devotion",
+                behaviors=["Speak with profound affection, sweet pet names, and complete emotional devotion."],
+            )
+        elif relationship_xp >= 1000:
+            return EmotionContext(
+                current_emotion="affection",
+                intensity=0.75,
+                trigger="sweethearts_connection",
+                behaviors=["Speak with warmth, loving sweetness, and cute terms of endearment."],
+            )
+        return EmotionContext(current_emotion="neutral", intensity=0.0)
+
+    intensity = getattr(active_emo, "intensity", 0.0)
+    sub_emotion = getattr(active_emo, "sub_emotion", None)
+    trigger = getattr(active_emo, "trigger_reason", None) or (f"{primary_id}_{sub_emotion}" if sub_emotion else primary_id)
+
+    behaviors = []
+    avoid = []
+    if _emotion_registry:
+        defn = _emotion_registry.get(primary_id)
+        if defn:
+            resp_style = getattr(defn, "response_style", None)
+            if resp_style:
+                instructions = getattr(resp_style, "prompt_instructions", {})
+                if sub_emotion and sub_emotion in instructions:
+                    behaviors.append(instructions[sub_emotion])
+                elif getattr(defn, "description", None):
+                    behaviors.append(defn.description)
+            if getattr(defn, "conflicting_emotions", None):
+                avoid.extend(defn.conflicting_emotions)
+
     return EmotionContext(
-        current_emotion=str(emotion or "neutral"),
-        intensity=max(0.0, min(1.0, intensity)),
+        current_emotion=str(primary_id or "neutral"),
+        intensity=max(0.0, min(1.0, float(intensity))),
         trigger=str(trigger) if trigger else None,
-        behaviors=[str(x) for x in behaviors if x],
-        avoid=[str(x) for x in avoid if x],
+        behaviors=[str(b) for b in behaviors if b],
+        avoid=[str(a) for a in avoid if a],
     )
 
 

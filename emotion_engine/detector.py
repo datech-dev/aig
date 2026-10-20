@@ -198,13 +198,19 @@ class EmotionDetector(EmotionDetectorProtocol):
             detected_event = "intimacy_request"
 
         # 3. Check Affection & Romance triggers
-        if any(w in text for w in ["love you", "i love you", "my sweetheart", "marry me", "kiss you", "gorgeous", "sweetheart"]):
+        affection_keywords = [
+            "love you", "i love you", "my sweetheart", "marry me", "kiss you", "kiss me", "kisses",
+            "kiss", "gorgeous", "sweetheart", "baby", "babe", "darling", "honey", "cutie", "sweetie",
+            "you're cute", "you are cute", "so pretty", "beautiful", "thinking of you", "adore you",
+            "good morning", "good night", "sweet dreams", "my girl", "mine"
+        ]
+        if any(w in text for w in affection_keywords):
             proposed.append(ProposedEmotionChange(
                 emotion_id="affection",
                 sub_emotion="romantic_devotion",
-                delta_intensity=0.30,
+                delta_intensity=0.35,
                 confidence=0.95,
-                reason="user_expressed_love",
+                reason="user_affection_or_sweet_talk",
                 trigger_type="conversational_cue",
             ))
             reason_codes.append("affection_triggered_love")
