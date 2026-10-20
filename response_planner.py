@@ -41,6 +41,7 @@ class ResponsePlanner:
                     safety_decision=safety_decision,
                 )
 
+        constraints.append("Keep the response strictly within 15 words (usually 1 short sentence) unless explicitly asked for a detailed explanation.")
         if relationship.chat_mode == "normal":
             tone = "warm, caring, supportive best friend"
             goal = "respond naturally with empathy and wholesome support"

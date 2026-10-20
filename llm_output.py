@@ -27,14 +27,58 @@ def _extract_json(raw: str) -> Optional[Dict[str, Any]]:
         value = json.loads(raw)
         return value if isinstance(value, dict) else None
     except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", raw, re.DOTALL)
-        if not match:
-            return None
+        pass
+
+    match = re.search(r"\{.*\}", raw, re.DOTALL)
+    if match:
         try:
             value = json.loads(match.group(0))
-            return value if isinstance(value, dict) else None
+            if isinstance(value, dict):
+                return value
         except json.JSONDecodeError:
-            return None
+            pass
+
+    # Robust fallback for slightly truncated JSON: extract "message" directly
+    msg_match = re.search(r'"message"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', raw)
+    if msg_match:
+        try:
+            cleaned_msg = json.loads(f'"{msg_match.group(1)}"')
+            return {"message": cleaned_msg, "media": {"type": "none"}}
+        except Exception:
+            return {"message": msg_match.group(1), "media": {"type": "none"}}
+
+    return None
+
+
+def clamp_to_word_limit(message: str, max_words: int = 15) -> str:
+    """Clamps message to max_words cleanly at sentence or clause boundaries."""
+    words = message.split()
+    if len(words) <= max_words:
+        return message
+
+    sentences = re.split(r'(?<=[.!?])\s+', message)
+    accum = []
+    for s in sentences:
+        cand = ' '.join(accum + [s]) if accum else s
+        if len(cand.split()) <= max_words:
+            accum.append(s)
+        else:
+            break
+    if accum:
+        return ' '.join(accum)
+
+    clauses = re.split(r'(?<=[,;:\-])\s+', message)
+    accum = []
+    for c in clauses:
+        cand = ' '.join(accum + [c]) if accum else c
+        if len(cand.split()) <= max_words:
+            accum.append(c)
+        else:
+            break
+    if accum:
+        return ' '.join(accum).rstrip(',;:- ')
+
+    return ' '.join(words[:max_words]).rstrip(',;:- ')
 
 
 def validate_llm_response(
@@ -43,6 +87,8 @@ def validate_llm_response(
     allowed_gifs: Sequence[str] = (),
     image_allowed: bool = False,
     character_appearance: str = "Juhi, a young Indian software developer living in Bangalore",
+    allow_long: bool = False,
+    max_words: int = 15,
 ) -> ValidatedLLMResponse:
     """Validate model output and never execute unvalidated media actions."""
     data = _extract_json(raw)
@@ -50,12 +96,17 @@ def validate_llm_response(
     # If structured output fails, return safe text only. No media action is allowed.
     if not data:
         fallback = re.sub(r"\[(?:GENERATE_IMAGE|SEND_GIF):[^\]]*\]", "", raw or "").strip()
-        return ValidatedLLMResponse(message=safety_engine.scan_output_safety(fallback))
+        safe_fb = safety_engine.scan_output_safety(fallback)
+        if not allow_long and safe_fb:
+            safe_fb = clamp_to_word_limit(safe_fb, max_words=max_words)
+        return ValidatedLLMResponse(message=safe_fb)
 
     message = data.get("message")
     if not isinstance(message, str):
         message = ""
     message = safety_engine.scan_output_safety(message.strip())
+    if not allow_long and message:
+        message = clamp_to_word_limit(message, max_words=max_words)
 
     language = data.get("language", "auto")
     if not isinstance(language, str) or len(language) > 20:

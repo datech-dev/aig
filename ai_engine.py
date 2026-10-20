@@ -266,12 +266,20 @@ async def generate_response(
             messages.append({"role": msg["role"], "content": msg["content"]})
     messages.append({"role": "user", "content": user_message})
 
+    # Adaptive max_tokens: ultra-concise (<15 words) by default, longer only when really needed
+    user_lower = user_message.lower()
+    needs_long_reply = any(k in user_lower for k in [
+        "explain", "why do", "how does", "tell me about", "what is the difference",
+        "detailed", "in depth", "advice on", "help me understand", "step by step"
+    ]) or len(user_message.split()) > 40
+    turn_max_tokens = 220 if needs_long_reply else 90
+
     try:
         response = await client.chat.completions.create(
             model=VENICE_MODEL,
             messages=messages,
             temperature=0.75,
-            max_tokens=100,  # Fast 1-2 sentence replies, avoids long monologues
+            max_tokens=turn_max_tokens,
         )
         raw_output = (response.choices[0].message.content or "").strip()
 
@@ -283,6 +291,8 @@ async def generate_response(
             allowed_gifs=available_gifs,
             image_allowed=bool(media.get("image_requested")),
             character_appearance=character_appearance,
+            allow_long=needs_long_reply,
+            max_words=15,
         )
         return to_legacy_compatible_text(validated)
 
