@@ -6,7 +6,7 @@ from unittest.mock import patch, AsyncMock
 # Add root directory to python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import config
 import database
 import ai_engine
@@ -736,6 +736,48 @@ class TestGirlfriendApp(unittest.TestCase):
         self.assertEqual(res_low["level"], 1)
         self.assertEqual(res_low["title"], "Acquaintances")
         self.assertEqual(res_low["xp"], 0)
+
+    def test_21_weekly_pass_robustness_and_expiry_info(self):
+        """Verify 1-week pass (168h), plan_name persistence even when <= 3 days remain, and expiry strings."""
+        u_wp = 88889999
+        database.setup_user(u_wp, "wp_user", "WpUser")
+        
+        # Simulate payment order created for 1-week pass (199 INR = 19900 paise)
+        database.create_payment_order(u_wp, order_id="ord_wp_888", amount=19900, item_type="chat_pass_1week", payment_gateway="razorpay")
+        
+        # Unlock via idempotent handler with 19900 amount
+        unlocked, exp_dt, msg = database.unlock_paid_access_idempotent(
+            telegram_id=u_wp,
+            order_id="ord_wp_888",
+            payment_id="pay_wp_888",
+            item_type="chat_pass_1week",
+            gateway="razorpay",
+            amount=19900
+        )
+        self.assertTrue(unlocked)
+        now = datetime.utcnow()
+        hours_remaining = (exp_dt - now).total_seconds() / 3600
+        self.assertGreater(hours_remaining, 160) # ~168 hours (7 days)
+
+        # Check subscription info
+        sub_info = database.get_subscription_info(u_wp)
+        self.assertTrue(sub_info["is_subscribed"])
+        self.assertEqual(sub_info["plan_name"], "1-Week Unlimited Pass")
+        self.assertIsNotNone(sub_info["expiry_date_str"])
+        self.assertIsNotNone(sub_info["expiry_time_str"])
+        self.assertIn("d ", sub_info["remaining_text"])
+
+        # Simulate 4 days elapsed (3 days remaining) -> verify plan_name is STILL 1-Week Pass, NOT downgraded to 1-Day Pass
+        new_exp_sim = now + timedelta(days=3, hours=2)
+        conn = database.get_connection()
+        conn.cursor().execute("UPDATE user_billing SET chat_expires_at = ? WHERE telegram_id = ?", (new_exp_sim.isoformat(), u_wp))
+        conn.commit()
+        conn.close()
+
+        sub_info_3days = database.get_subscription_info(u_wp)
+        self.assertTrue(sub_info_3days["is_subscribed"])
+        self.assertEqual(sub_info_3days["plan_name"], "1-Week Unlimited Pass")
+        self.assertIn("3d", sub_info_3days["remaining_text"])
 
 
 if __name__ == "__main__":

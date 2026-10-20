@@ -151,6 +151,23 @@ void main() {
       });
       expect(freeProfile.formattedExpiry, null);
     });
+
+    test('UserProfile formats subscription expiry date and plan accurately', () {
+      final subProfile = UserProfile.fromJson({
+        'user_id': '104',
+        'is_subscribed': true,
+        'chat_expires_at': '2026-10-27T13:11:00',
+        'expires_at_ist': '27 Oct 2026, 06:41 PM IST',
+        'expiry_date_str': 'Tuesday, 27 October 2026',
+        'expiry_time_str': '06:41 PM IST',
+        'subscription_remaining_text': '6d 23h 59m',
+        'subscription_plan': '1-Week VIP Pass',
+      });
+      expect(subProfile.isSubscribed, true);
+      expect(subProfile.subscriptionPlan, '1-Week VIP Pass');
+      expect(subProfile.formattedExpiryDate, 'Tuesday, 27 October 2026 (06:41 PM IST)');
+      expect(subProfile.formattedExpiry, '6d 23h 59m remaining');
+    });
   });
 
   group('Juhi App Phase 6 Notifications Tests', () {

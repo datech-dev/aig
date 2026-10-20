@@ -197,6 +197,80 @@ async def handle_instamojo_webhook(request):
 
     return web.Response(text="OK", status=200)
 
+async def handle_razorpay_webhook(request):
+    """
+    Webhook handler for Razorpay server-to-server notifications.
+    Processes 'payment.captured' and 'order.paid' events idempotently.
+    """
+    try:
+        data = await request.json()
+    except Exception as e:
+        logger.error(f"Failed to parse Razorpay webhook payload: {e}")
+        return web.Response(text="Invalid JSON", status=400)
+
+    event = data.get("event")
+    logger.info(f"Received Razorpay webhook event: {event}")
+
+    payload = data.get("payload", {})
+    payment_entity = payload.get("payment", {}).get("entity", {})
+    order_entity = payload.get("order", {}).get("entity", {})
+
+    payment_id = payment_entity.get("id")
+    order_id = payment_entity.get("order_id") or order_entity.get("id")
+    amount = payment_entity.get("amount") or order_entity.get("amount") or 5000
+    currency = payment_entity.get("currency") or "INR"
+
+    notes = payment_entity.get("notes") or order_entity.get("notes") or {}
+    user_id_val = notes.get("user_id")
+    item_type = notes.get("item_type") or notes.get("plan_type", "chat_pass")
+
+    user_id = None
+    if user_id_val:
+        try:
+            user_id = int(user_id_val)
+        except ValueError:
+            pass
+
+    if not user_id and order_id:
+        conn = database.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT telegram_id, item_type, amount FROM payments WHERE order_id = ?", (order_id,))
+        row = cursor.fetchone()
+        conn.close()
+        if row:
+            user_id = row["telegram_id"]
+            if row["item_type"]:
+                item_type = row["item_type"]
+            if row["amount"]:
+                amount = row["amount"]
+
+    if not user_id:
+        logger.warning(f"Razorpay webhook: Could not identify user_id for order={order_id}, payment={payment_id}")
+        return web.Response(text="OK", status=200)
+
+    amt_val = float(amount or 0)
+    if amt_val in (19900, 199, 199.0):
+        item_type = "chat_pass_1week"
+    elif amt_val in (49900, 499, 499.0):
+        item_type = "chat_pass_1month"
+
+    if event in ("payment.captured", "order.paid"):
+        try:
+            unlocked_now, expiry, msg_str = database.unlock_paid_access_idempotent(
+                telegram_id=user_id,
+                order_id=order_id,
+                payment_id=payment_id,
+                item_type=item_type,
+                gateway="razorpay",
+                amount=amount,
+                currency=currency
+            )
+            logger.info(f"Razorpay webhook unlocked user={user_id}, plan={item_type}, expiry={expiry}")
+        except Exception as e_unlock:
+            logger.error(f"Error unlocking access from Razorpay webhook: {e_unlock}")
+
+    return web.Response(text="OK", status=200)
+
 async def handle_home(request):
     """
     Serves the checkout index.html page.
@@ -356,10 +430,34 @@ async def handle_verify_payment(request):
         actual_item_type = item_type
         actual_amount = 5000
         if p_row:
-            if p_row["item_type"] and actual_item_type in (None, "", "chat_pass"):
-                actual_item_type = p_row["item_type"]
             if p_row["amount"]:
                 actual_amount = p_row["amount"]
+            if p_row["item_type"]:
+                if actual_item_type in (None, "", "chat_pass", "chat_pass_1day") or p_row["item_type"] in ("chat_pass_1week", "chat_pass_1month", "image_credits"):
+                    actual_item_type = p_row["item_type"]
+
+        # Fetch authoritative details directly from Razorpay if available
+        if razorpay_payment_id and config.RAZORPAY_KEY_ID and config.RAZORPAY_KEY_SECRET:
+            try:
+                import razorpay
+                client = razorpay.Client(auth=(config.RAZORPAY_KEY_ID, config.RAZORPAY_KEY_SECRET))
+                rzp_pay_data = client.payment.fetch(razorpay_payment_id)
+                if rzp_pay_data:
+                    rzp_amt = rzp_pay_data.get("amount")
+                    if rzp_amt:
+                        actual_amount = int(rzp_amt)
+                    rzp_notes = rzp_pay_data.get("notes") or {}
+                    rzp_item = rzp_notes.get("item_type") or rzp_notes.get("plan_type")
+                    if rzp_item:
+                        actual_item_type = rzp_item
+            except Exception as fetch_err:
+                logger.warning(f"Could not fetch payment from Razorpay: {fetch_err}")
+
+        # Enforce plan based on verified amount
+        if actual_amount in (19900, 199, 199.0):
+            actual_item_type = "chat_pass_1week"
+        elif actual_amount in (49900, 499, 499.0):
+            actual_item_type = "chat_pass_1month"
 
         unlocked_now, expiry, msg_str = database.unlock_paid_access_idempotent(
             telegram_id=user_id,
@@ -1816,7 +1914,7 @@ async def start_webhook_server(application, port=8080):
     app.router.add_post('/api/payment-failed', handle_api_payment_failed)
     app.router.add_post('/api/payment-cancelled', handle_api_payment_cancelled)
     app.router.add_post('/webhook/instamojo', handle_instamojo_webhook)
-    app.router.add_post('/webhook/razorpay', handle_instamojo_webhook)
+    app.router.add_post('/webhook/razorpay', handle_razorpay_webhook)
     
     # Flutter Mobile App REST API Routes
     app.router.add_post('/api/auth', handle_api_auth)

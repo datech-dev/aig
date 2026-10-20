@@ -3,7 +3,7 @@ import os
 import re
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import config
 from config import PERSONAS, get_relationship_status, RELATIONSHIP_LEVELS, INITIAL_IMAGE_CREDITS, CHAT_PASS_DURATION_HOURS, FREE_MESSAGE_LIMIT
 
@@ -150,6 +150,8 @@ def init_db():
             confidence REAL DEFAULT 1.0,
             importance INTEGER DEFAULT 1,
             is_current INTEGER DEFAULT 1,
+            memory_type TEXT DEFAULT 'fact',
+            valid_until TIMESTAMP DEFAULT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY(telegram_id) REFERENCES users(telegram_id)
         )
@@ -186,7 +188,7 @@ def init_db():
     """)
 
     # Column migrations for user_memories
-    for col_name, col_def in [("confidence", "REAL DEFAULT 1.0"), ("importance", "INTEGER DEFAULT 1"), ("is_current", "INTEGER DEFAULT 1")]:
+    for col_name, col_def in [("confidence", "REAL DEFAULT 1.0"), ("importance", "INTEGER DEFAULT 1"), ("is_current", "INTEGER DEFAULT 1"), ("memory_type", "TEXT DEFAULT 'fact'"), ("valid_until", "TIMESTAMP DEFAULT NULL")]:
         try:
             cursor.execute(f"ALTER TABLE user_memories ADD COLUMN {col_name} {col_def}")
         except sqlite3.OperationalError:
@@ -578,6 +580,12 @@ def set_relationship_level(telegram_id, target_level: int):
             SET relationship_xp = ?, relationship_level = ?
             WHERE telegram_id = ? AND persona_key = ?
         """, (new_xp, target_level, telegram_id, p_key))
+    # Safety sync: ensure all persona rows for this user have updated level and base xp
+    cursor.execute("""
+        UPDATE user_settings
+        SET relationship_xp = ?, relationship_level = ?
+        WHERE telegram_id = ?
+    """, (new_xp, target_level, telegram_id))
     conn.commit()
     conn.close()
     
@@ -805,12 +813,37 @@ def get_subscription_info(telegram_id):
                 else:
                     remaining_text = f"{mins}m"
                 
-                if days >= 20:
-                    plan_name = "1-Month Unlimited Pass"
-                elif days >= 4:
-                    plan_name = "1-Week Unlimited Pass"
-                else:
-                    plan_name = "1-Day Unlimited Pass"
+                # Check actual purchased product from payments table to avoid misnaming
+                try:
+                    conn_sub = get_connection()
+                    c_sub = conn_sub.cursor()
+                    c_sub.execute("""
+                        SELECT item_type, amount FROM payments
+                        WHERE telegram_id = ? AND status = 'SUCCESS'
+                        ORDER BY id DESC LIMIT 1
+                    """, (telegram_id,))
+                    last_pay = c_sub.fetchone()
+                    conn_sub.close()
+
+                    if last_pay and last_pay["item_type"]:
+                        lp_type = str(last_pay["item_type"]).lower()
+                        lp_amt = float(last_pay["amount"] or 0)
+                        if "month" in lp_type or lp_amt in (49900, 499):
+                            plan_name = "1-Month Unlimited Pass"
+                        elif "week" in lp_type or lp_amt in (19900, 199):
+                            plan_name = "1-Week Unlimited Pass"
+                        elif "day" in lp_type or lp_amt in (4900, 49):
+                            plan_name = "1-Day Unlimited Pass"
+                except Exception:
+                    pass
+
+                if plan_name == "None":
+                    if days >= 20:
+                        plan_name = "1-Month Unlimited Pass"
+                    elif days >= 4:
+                        plan_name = "1-Week Unlimited Pass"
+                    else:
+                        plan_name = "1-Day Unlimited Pass"
             else:
                 remaining_text = "Expired"
         except Exception:
@@ -1187,6 +1220,9 @@ def unlock_paid_access_idempotent(telegram_id, order_id, payment_id, item_type="
             resolved_item_type = "chat_pass_1week"
         elif amt_val in (49900, 499, 499.0):
             resolved_item_type = "chat_pass_1month"
+        elif amt_val in (4900, 49, 49.0):
+            if resolved_item_type not in ("image_credits", "10_images", "images", "photos"):
+                resolved_item_type = "chat_pass_1day"
     except Exception:
         pass
 
@@ -1244,9 +1280,9 @@ def unlock_paid_access_idempotent(telegram_id, order_id, payment_id, item_type="
     expiry = None
     if norm_item in ("image_credits", "10_images", "images", "photos"):
         grant_image_credits(telegram_id, amount=10)
-    elif norm_item in ("chat_pass_1week", "1week", "week", "weekly", "chat_pass_week"):
+    elif norm_item in ("chat_pass_1week", "1week", "week", "weekly", "chat_pass_week", "1 week", "1_week", "7days", "7_days", "7 days"):
         expiry = grant_chat_pass(telegram_id, hours=168)  # 1 week (7 days)
-    elif norm_item in ("chat_pass_1month", "1month", "month", "monthly", "chat_pass_month", "chat_pass_30days"):
+    elif norm_item in ("chat_pass_1month", "1month", "month", "monthly", "chat_pass_month", "chat_pass_30days", "1 month", "1_month", "30days", "30_days", "30 days"):
         expiry = grant_chat_pass(telegram_id, hours=720)  # 1 month (30 days)
     else:
         expiry = grant_chat_pass(telegram_id, hours=CHAT_PASS_DURATION_HOURS)  # 1 day (24 hours)
@@ -1541,7 +1577,7 @@ def toggle_chat_mode(telegram_id):
     return new_mode
 
 
-def add_user_memory(telegram_id, memory_text, category="detail", confidence=1.0, importance=1, is_current=1):
+def add_user_memory(telegram_id, memory_text, category="detail", confidence=1.0, importance=1, is_current=1, memory_type=None, valid_until=None):
     """
     Stores a remembered detail or fact about the user.
     Handles confidence scoring, importance, and historical state updates.
@@ -1557,6 +1593,14 @@ def add_user_memory(telegram_id, memory_text, category="detail", confidence=1.0,
     # Auto-detect high importance (pending events / goals / interviews)
     if any(k in memory_clean.lower() for k in ["interview", "exam", "presentation", "starting a new job", "goal"]):
         importance = 3
+
+    if memory_type is None:
+        memory_type = {
+            "preference": "preference",
+            "event": "event",
+            "problem": "temporary",
+            "detail": "fact",
+        }.get(category, "fact")
 
     conn = get_connection()
     cursor = conn.cursor()
@@ -1597,9 +1641,9 @@ def add_user_memory(telegram_id, memory_text, category="detail", confidence=1.0,
             return False
 
     cursor.execute("""
-        INSERT INTO user_memories (telegram_id, category, memory_text, confidence, importance, is_current)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (telegram_id, category, memory_clean, confidence, importance, is_current))
+        INSERT INTO user_memories (telegram_id, category, memory_text, confidence, importance, is_current, memory_type, valid_until)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (telegram_id, category, memory_clean, confidence, importance, is_current, memory_type, valid_until))
 
     # Trim excess memories if over limit
     cursor.execute("""
@@ -1634,9 +1678,12 @@ def get_user_memories_ranked(telegram_id, current_message="", limit=10):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT memory_text, category, confidence, importance, is_current, created_at 
+        SELECT memory_text, category, confidence, importance, is_current, memory_type, valid_until, created_at 
         FROM user_memories
-        WHERE telegram_id = ? AND is_current = 1 AND confidence >= 0.6
+        WHERE telegram_id = ?
+          AND is_current = 1
+          AND confidence >= 0.6
+          AND (valid_until IS NULL OR valid_until = '' OR datetime(valid_until) > datetime('now'))
         ORDER BY importance DESC, created_at DESC
     """, (telegram_id,))
     rows = cursor.fetchall()

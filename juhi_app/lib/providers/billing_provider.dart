@@ -114,6 +114,7 @@ class BillingNotifier extends StateNotifier<BillingState> {
 
       final orderId = orderData['order_id']?.toString() ?? '';
       _pendingOrderId = orderId;
+      await LocalStorage.savePendingPayment(orderId: orderId, planType: planType);
       final gateway = orderData['gateway']?.toString() ?? 'razorpay';
       final rzpKey = orderData['key']?.toString() ?? '';
       final payUrl = orderData['pay_url']?.toString();
@@ -179,8 +180,13 @@ class BillingNotifier extends StateNotifier<BillingState> {
         '[BillingNotifier] Payment success: order=${response.orderId}, payment=${response.paymentId}');
 
     final userId = await LocalStorage.getUserId();
-    final planType = _pendingPlanType ?? 'chat_pass_1day';
-    final orderId = response.orderId ?? _pendingOrderId ?? '';
+    final savedPending = await LocalStorage.getPendingPayment();
+    final planType = _pendingPlanType ?? savedPending['plan_type'] ?? 'chat_pass_1day';
+    final orderId = (response.orderId != null && response.orderId!.isNotEmpty)
+        ? response.orderId!
+        : (_pendingOrderId != null && _pendingOrderId!.isNotEmpty)
+            ? _pendingOrderId!
+            : (savedPending['order_id'] ?? '');
     final paymentId = response.paymentId ?? '';
     final signature = response.signature ?? '';
 
@@ -221,6 +227,7 @@ class BillingNotifier extends StateNotifier<BillingState> {
     } finally {
       _pendingOrderId = null;
       _pendingPlanType = null;
+      await LocalStorage.clearPendingPayment();
     }
   }
 
@@ -236,6 +243,7 @@ class BillingNotifier extends StateNotifier<BillingState> {
     _onErrorCallback?.call(msg);
     _pendingOrderId = null;
     _pendingPlanType = null;
+    LocalStorage.clearPendingPayment();
   }
 
   void _handleExternalWallet(ExternalWalletResponse response) {

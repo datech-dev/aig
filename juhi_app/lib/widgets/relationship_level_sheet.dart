@@ -24,6 +24,9 @@ class RelationshipLevelSheet extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final liveProfile = ref.watch(profileProvider).valueOrNull;
+    final effectiveCurrentLevel = liveProfile?.level ?? currentLevel;
+
     return Container(
       constraints: BoxConstraints(
         maxHeight: MediaQuery.of(context).size.height * 0.85,
@@ -110,7 +113,7 @@ class RelationshipLevelSheet extends ConsumerWidget {
                   itemBuilder: (context, index) {
                     final lvl = AppConstants.relationshipLevels[index];
                     final levelNum = lvl['level'] as int;
-                    final isCurrent = levelNum == currentLevel;
+                    final isCurrent = levelNum == effectiveCurrentLevel;
                     final title = lvl['title'] as String;
                     final emoji = lvl['emoji'] as String;
                     final desc = lvl['description'] as String? ?? '';
@@ -119,9 +122,9 @@ class RelationshipLevelSheet extends ConsumerWidget {
                     return GestureDetector(
                       onTap: () async {
                         HapticFeedback.mediumImpact();
-                        Navigator.pop(context);
 
                         if (isCurrent) {
+                          Navigator.pop(context);
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               backgroundColor: AppTheme.surface,
@@ -139,43 +142,45 @@ class RelationshipLevelSheet extends ConsumerWidget {
                           return;
                         }
 
+                        // Capture ScaffoldMessenger before popping modal
+                        final messenger = ScaffoldMessenger.of(context);
+                        Navigator.pop(context);
+
                         final success = await ref
                             .read(profileProvider.notifier)
                             .setRelationshipLevel(levelNum);
 
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              backgroundColor: AppTheme.surface,
-                              behavior: SnackBarBehavior.floating,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                                side: const BorderSide(
-                                  color: AppTheme.primary,
-                                  width: 1.2,
-                                ),
-                              ),
-                              content: Row(
-                                children: [
-                                  Text(emoji, style: const TextStyle(fontSize: 22)),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Text(
-                                      success
-                                          ? 'Relationship stage set to Level $levelNum — $title! Juhi will now talk and behave accordingly 💕'
-                                          : 'Failed to update relationship stage. Please check your connection.',
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w600,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                  ),
-                                ],
+                        messenger.showSnackBar(
+                          SnackBar(
+                            backgroundColor: AppTheme.surface,
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                              side: BorderSide(
+                                color: success ? AppTheme.primary : Colors.redAccent,
+                                width: 1.2,
                               ),
                             ),
-                          );
-                        }
+                            content: Row(
+                              children: [
+                                Text(emoji, style: const TextStyle(fontSize: 22)),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    success
+                                        ? 'Relationship stage set to Level $levelNum — $title! Juhi will now talk and behave accordingly 💕'
+                                        : 'Failed to update relationship stage. Please check your connection.',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w600,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
                       },
                       child: Container(
                         padding: const EdgeInsets.all(14),

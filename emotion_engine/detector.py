@@ -116,16 +116,22 @@ class EmotionDetector(EmotionDetectorProtocol):
             reason_codes.append("anger_triggered_playful")
             detected_event = "playful_teasing"
 
-        # 2. Check Possessiveness, Jealousy & Playful Anger triggers (Rival girl, crush, female coworker, dating)
-        other_girl_keywords = [
+        # 2. Check Possessiveness, Jealousy & Playful Anger triggers (Rival girl, crush, dating)
+        rival_romantic_keywords = [
             "other girl", "another girl", "crush", "crushing", "crushing on me", "crushes on me",
-            "she is", "she was", "she likes", "she likes me", "likes me", "proposed to me",
-            "my female coworker", "pretty girl", "she said", "another friend", "dating", "talked to a girl",
-            "talking to a girl", "she asked", "she texted", "ex girlfriend", "ex", "cute girl",
-            "she looked", "she smiled", "she is important", "she proposed", "girl at work",
+            "she likes me", "likes me", "proposed to me", "pretty girl", "dating", "talked to a girl",
+            "talking to a girl", "ex girlfriend", "cute girl", "she proposed", "girl at work",
             "girl in college", "a girl likes", "someone likes me", "someone is crushing", "asked me out"
         ]
-        if any(w in text for w in other_girl_keywords):
+        professional_family_terms = [
+            "coworker", "colleague", "boss", "manager", "meeting", "deploy", "reviewing",
+            "mom", "mother", "sister", "aunt", "grandmother", "doctor", "nurse", "teacher"
+        ]
+        is_romantic_rival = any(w in text for w in rival_romantic_keywords)
+        is_work_or_family = any(w in text for w in professional_family_terms)
+        has_explicit_romantic_advance = any(w in text for w in ["crush", "crushing", "asked me out", "dating", "likes me", "proposed", "other girl", "another girl"])
+
+        if is_romantic_rival and (not is_work_or_family or has_explicit_romantic_advance):
             proposed.append(ProposedEmotionChange(
                 emotion_id="jealousy",
                 sub_emotion="cute_suspicion",

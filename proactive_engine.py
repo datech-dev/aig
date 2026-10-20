@@ -136,9 +136,15 @@ async def execute_proactive_check(application, telegram_id: int = None, force: b
         u_id = u["telegram_id"]
         try:
             res = await evaluate_proactive_for_user(u_id, force=force)
-            decision = res.get("decision", "DONT_SEND")
+            decision = str(res.get("decision", "DONT_SEND")).upper()
             reason = res.get("reason", "")
             message = res.get("message")
+
+            # Normalize malformed engine results to the safest state.
+            if decision not in {"SEND", "DONT_SEND"} or (decision == "SEND" and not message):
+                decision = "DONT_SEND"
+                message = None
+                reason = reason or "Malformed proactive decision; normalized to DONT_SEND."
 
             if decision == "SEND" and message and application:
                 try:

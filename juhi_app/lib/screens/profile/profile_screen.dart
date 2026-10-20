@@ -530,11 +530,66 @@ class _ProfileContent extends ConsumerWidget {
                 const SizedBox(height: 10),
                 _RelationshipJourneyPath(
                   currentLevel: profile.level as int,
-                  onTapLevel: (lvl) => RelationshipLevelSheet.show(
-                    context,
-                    ref,
-                    currentLevel: profile.level as int,
-                  ),
+                  onTapLevel: (lvl) async {
+                    if (lvl == (profile.level as int)) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          backgroundColor: AppTheme.surface,
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            side: const BorderSide(color: AppTheme.border),
+                          ),
+                          content: Text(
+                            'Juhi is already in Level $lvl (${profile.levelTitle}) stage 💕',
+                            style: const TextStyle(color: Colors.white),
+                          ),
+                        ),
+                      );
+                      return;
+                    }
+                    HapticFeedback.mediumImpact();
+                    final success = await ref
+                        .read(profileProvider.notifier)
+                        .setRelationshipLevel(lvl);
+                    if (context.mounted) {
+                      final lvlData = AppConstants.relationshipLevels.firstWhere(
+                        (l) => l['level'] == lvl,
+                        orElse: () => {'title': 'Stage $lvl', 'emoji': '💖'},
+                      );
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          backgroundColor: AppTheme.surface,
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                            side: BorderSide(
+                              color: success ? AppTheme.primary : Colors.redAccent,
+                              width: 1.2,
+                            ),
+                          ),
+                          content: Row(
+                            children: [
+                              Text(lvlData['emoji'] as String, style: const TextStyle(fontSize: 22)),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  success
+                                      ? 'Relationship stage set to Level $lvl — ${lvlData['title']}! Juhi will now talk and behave accordingly 💕'
+                                      : 'Failed to update relationship stage. Please check your connection.',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }
+                  },
                 ),
 
                 const SizedBox(height: 18),
@@ -654,77 +709,225 @@ class _ProfileContent extends ConsumerWidget {
 
                 const SizedBox(height: 18),
 
-                // ── Subscription Card ──────────────────────────────────────
+                // ── Subscription Card (Shows Package & Expiration Date) ─────
                 GestureDetector(
                   onTap: () => context.go('/store'),
-                  child: _SectionCard(
-                    child: Row(
+                  child: Container(
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      color: AppTheme.card,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: (profile.isSubscribed as bool)
+                            ? AppTheme.primary.withValues(alpha: 0.6)
+                            : AppTheme.border,
+                        width: (profile.isSubscribed as bool) ? 1.4 : 0.6,
+                      ),
+                      boxShadow: [
+                        if (profile.isSubscribed as bool)
+                          ...AppTheme.glowShadow(blur: 20),
+                        ...AppTheme.cardShadow,
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: profile.isSubscribed as bool
-                                ? AppTheme.primary.withValues(alpha: 0.18)
-                                : AppTheme.border.withValues(alpha: 0.4),
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          child: Icon(
-                            profile.isSubscribed as bool
-                                ? Icons.verified_rounded
-                                : Icons.lock_outline_rounded,
-                            color: profile.isSubscribed as bool
-                                ? AppTheme.primary
-                                : AppTheme.textSecondary,
-                            size: 26,
-                          ),
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                gradient: (profile.isSubscribed as bool)
+                                    ? AppTheme.primaryGradient
+                                    : null,
+                                color: !(profile.isSubscribed as bool)
+                                    ? AppTheme.border.withValues(alpha: 0.4)
+                                    : null,
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: Icon(
+                                (profile.isSubscribed as bool)
+                                    ? Icons.workspace_premium_rounded
+                                    : Icons.lock_outline_rounded,
+                                color: Colors.white,
+                                size: 26,
+                              ),
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          (profile.isSubscribed as bool)
+                                              ? (profile.subscriptionPlan ?? 'Unlimited VIP Pass')
+                                              : 'Free Trial Plan',
+                                          style: const TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w800,
+                                            color: Colors.white,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 8, vertical: 3),
+                                        decoration: BoxDecoration(
+                                          color: (profile.isSubscribed as bool)
+                                              ? const Color(0xFF00E676).withValues(alpha: 0.15)
+                                              : AppTheme.primary.withValues(alpha: 0.15),
+                                          borderRadius: BorderRadius.circular(8),
+                                          border: Border.all(
+                                            color: (profile.isSubscribed as bool)
+                                                ? const Color(0xFF00E676)
+                                                : AppTheme.primary,
+                                            width: 0.8,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          (profile.isSubscribed as bool) ? 'ACTIVE 👑' : 'FREE',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w800,
+                                            color: (profile.isSubscribed as bool)
+                                                ? const Color(0xFF00E676)
+                                                : AppTheme.primary,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    (profile.isSubscribed as bool)
+                                        ? '24/7 Unlimited Intimate chats, voice & selfies'
+                                        : '${profile.remainingFreeMessages} messages remaining today',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: AppTheme.textSecondary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+
+                        // If subscribed, prominently display expiration details
+                        if (profile.isSubscribed as bool) ...[
+                          const SizedBox(height: 14),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                            decoration: BoxDecoration(
+                              color: AppTheme.surface,
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                color: AppTheme.primary.withValues(alpha: 0.3),
+                                width: 0.8,
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.event_available_rounded,
+                                      color: AppTheme.primary,
+                                      size: 18,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    const Text(
+                                      'Package Expiry Date:',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                        color: AppTheme.textSecondary,
+                                      ),
+                                    ),
+                                    const Spacer(),
+                                    if (profile.formattedExpiry != null)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 7, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: AppTheme.primary.withValues(alpha: 0.15),
+                                          borderRadius: BorderRadius.circular(6),
+                                        ),
+                                        child: Text(
+                                          profile.formattedExpiry!,
+                                          style: const TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w700,
+                                            color: AppTheme.primary,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  profile.formattedExpiryDate as String,
+                                  style: const TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.white,
+                                    letterSpacing: 0.2,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
                             children: [
                               Text(
-                                profile.isSubscribed as bool
-                                    ? 'Unlimited Membership Active 👑'
-                                    : 'Free Trial Plan',
+                                'Tap to extend or view plans',
                                 style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w700,
-                                  color: profile.isSubscribed as bool
-                                      ? AppTheme.primary
-                                      : Colors.white,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppTheme.primary.withValues(alpha: 0.9),
                                 ),
                               ),
-                              const SizedBox(height: 2),
-                              Text(
-                                profile.isSubscribed as bool
-                                    ? '24/7 Unlimited Intimate chats & selfies'
-                                    : '${profile.remainingFreeMessages} messages remaining today',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: AppTheme.textSecondary,
-                                ),
+                              const SizedBox(width: 4),
+                              const Icon(
+                                Icons.arrow_forward_ios_rounded,
+                                size: 10,
+                                color: AppTheme.primary,
                               ),
                             ],
                           ),
-                        ),
-                        if (!(profile.isSubscribed as bool))
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 6),
-                            decoration: BoxDecoration(
-                              gradient: AppTheme.primaryGradient,
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            child: const Text(
-                              'Upgrade',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.white,
+                        ] else ...[
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton(
+                              onPressed: () => context.go('/store'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppTheme.primary,
+                                padding: const EdgeInsets.symmetric(vertical: 10),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              child: const Text(
+                                'Upgrade to Unlimited (from ₹49)',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white,
+                                ),
                               ),
                             ),
                           ),
+                        ],
                       ],
                     ),
                   ),

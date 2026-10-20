@@ -76,6 +76,30 @@ class LocalStorage {
     return prefs.getBool(keyProactiveEnabled) ?? true;
   }
 
+  // ── Pending Payment Persistence ──────────────────────────────────────────
+  static const String keyPendingOrderId = 'pending_order_id';
+  static const String keyPendingPlanType = 'pending_plan_type';
+
+  static Future<void> savePendingPayment({required String orderId, required String planType}) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(keyPendingOrderId, orderId);
+    await prefs.setString(keyPendingPlanType, planType);
+  }
+
+  static Future<Map<String, String?>> getPendingPayment() async {
+    final prefs = await SharedPreferences.getInstance();
+    return {
+      'order_id': prefs.getString(keyPendingOrderId),
+      'plan_type': prefs.getString(keyPendingPlanType),
+    };
+  }
+
+  static Future<void> clearPendingPayment() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(keyPendingOrderId);
+    await prefs.remove(keyPendingPlanType);
+  }
+
   // ── Clear all ─────────────────────────────────────────────────────────────
   static Future<void> clearAll() async {
     await _storage.deleteAll();

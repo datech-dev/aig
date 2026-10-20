@@ -15,6 +15,11 @@ class UserProfile {
   final int remainingFreeMessages;
   final int imageCredits;
   final String? chatExpiresAt;
+  final String? expiresAtIst;
+  final String? expiryDateStr;
+  final String? expiryTimeStr;
+  final String? subscriptionRemainingText;
+  final String? subscriptionPlan;
 
   const UserProfile({
     required this.userId,
@@ -33,6 +38,11 @@ class UserProfile {
     required this.remainingFreeMessages,
     required this.imageCredits,
     this.chatExpiresAt,
+    this.expiresAtIst,
+    this.expiryDateStr,
+    this.expiryTimeStr,
+    this.subscriptionRemainingText,
+    this.subscriptionPlan,
   });
 
   factory UserProfile.fromJson(Map<String, dynamic> json) {
@@ -53,6 +63,11 @@ class UserProfile {
       remainingFreeMessages: json['remaining_free_messages'] ?? 10,
       imageCredits: json['image_credits'] ?? 0,
       chatExpiresAt: json['chat_expires_at'],
+      expiresAtIst: json['expires_at_ist'],
+      expiryDateStr: json['expiry_date_str'],
+      expiryTimeStr: json['expiry_time_str'],
+      subscriptionRemainingText: json['subscription_remaining_text'],
+      subscriptionPlan: json['subscription_plan'],
     );
   }
 
@@ -67,6 +82,10 @@ class UserProfile {
   }
 
   String? get formattedExpiry {
+    if (subscriptionRemainingText != null && subscriptionRemainingText!.isNotEmpty) {
+      if (subscriptionRemainingText == 'Expired') return 'Expired';
+      return '$subscriptionRemainingText remaining';
+    }
     final exp = chatExpiresAtDate;
     if (exp == null) return null;
     final now = DateTime.now();
@@ -75,6 +94,24 @@ class UserProfile {
     if (diff.inDays > 0) return '${diff.inDays}d ${diff.inHours % 24}h remaining';
     if (diff.inHours > 0) return '${diff.inHours}h ${diff.inMinutes % 60}m remaining';
     return '${diff.inMinutes}m remaining';
+  }
+
+  /// User-friendly, authoritative expiration date and time formatted in IST
+  String get formattedExpiryDate {
+    if (expiryDateStr != null && expiryDateStr!.isNotEmpty) {
+      if (expiryTimeStr != null && expiryTimeStr!.isNotEmpty) {
+        return '$expiryDateStr ($expiryTimeStr)';
+      }
+      return expiryDateStr!;
+    }
+    if (expiresAtIst != null && expiresAtIst!.isNotEmpty) {
+      return expiresAtIst!;
+    }
+    final exp = chatExpiresAtDate;
+    if (exp != null) {
+      return '${exp.day.toString().padLeft(2, '0')}/${exp.month.toString().padLeft(2, '0')}/${exp.year}';
+    }
+    return 'Active';
   }
 
   UserProfile copyWith({
@@ -89,6 +126,11 @@ class UserProfile {
     String? chatModeLabel,
     int? memoryCount,
     String? chatExpiresAt,
+    String? expiresAtIst,
+    String? expiryDateStr,
+    String? expiryTimeStr,
+    String? subscriptionRemainingText,
+    String? subscriptionPlan,
   }) {
     return UserProfile(
       userId: userId,
@@ -107,6 +149,11 @@ class UserProfile {
       remainingFreeMessages: remainingFreeMessages ?? this.remainingFreeMessages,
       imageCredits: imageCredits ?? this.imageCredits,
       chatExpiresAt: chatExpiresAt ?? this.chatExpiresAt,
+      expiresAtIst: expiresAtIst ?? this.expiresAtIst,
+      expiryDateStr: expiryDateStr ?? this.expiryDateStr,
+      expiryTimeStr: expiryTimeStr ?? this.expiryTimeStr,
+      subscriptionRemainingText: subscriptionRemainingText ?? this.subscriptionRemainingText,
+      subscriptionPlan: subscriptionPlan ?? this.subscriptionPlan,
     );
   }
 }

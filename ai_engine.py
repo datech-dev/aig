@@ -3,9 +3,14 @@ import base64
 import httpx
 import tempfile
 from io import BytesIO
+from datetime import datetime, timedelta, timezone
 from PIL import Image
 from openai import AsyncOpenAI
-from config import VENICE_API_KEY, VENICE_MODEL, construct_system_prompt, VENICE_IMAGE_MODEL
+from config import VENICE_API_KEY, VENICE_MODEL, construct_system_prompt, VENICE_IMAGE_MODEL, get_relationship_status, get_gif_descriptions
+from context_models import RelationshipState, EmotionContext
+from response_planner import planner as response_planner
+from llm_output import validate_llm_response, to_legacy_compatible_text
+from context_compiler import compiler
 
 
 # Configure logging
@@ -28,65 +33,63 @@ import database
 import safety_engine
 
 def extract_and_save_user_memories(user_id: int, user_message: str):
-    """
-    Scans incoming user messages for personal disclosures, preferences, 
-    and emotional struggles, saving extracted facts into the memory bank.
+    """Extract durable facts and short-lived state/events into typed memories.
+
+    This remains intentionally conservative: temporary emotions/problems receive
+    TTLs and are not treated as permanent user facts.
     """
     text = user_message.strip()
     if len(text) < 4:
         return
-        
-    # 1. Preferences & Likes
+
+    ttl_48h = (datetime.now(timezone.utc) + timedelta(hours=48)).isoformat()
+    ttl_3d = (datetime.now(timezone.utc) + timedelta(days=3)).isoformat()
+
     like_match = re.search(r'\b(?:i|my)\s+(?:really\s+)?(?:love|like|enjoy|prefer|am addicted to|fav|favorite)\s+([^.,!?\n]+)', text, re.IGNORECASE)
     if like_match:
         val = like_match.group(1).strip()
-        if len(val) > 2 and len(val) < 80:
-            database.add_user_memory(user_id, f"Likes/Prefers: {val}", category="preference")
-            
-    # 2. Occupation & Work
+        if 2 < len(val) < 80:
+            database.add_user_memory(user_id, f"Likes/Prefers: {val}", category="preference", memory_type="preference")
+
     job_match = re.search(r'\b(?:i work as|i am a|i\'m a|my job is|my profession is)\s+([^.,!?\n]+)', text, re.IGNORECASE)
     if job_match:
         val = job_match.group(1).strip()
-        if len(val) > 2 and len(val) < 60:
-            database.add_user_memory(user_id, f"Works as/Is: {val}", category="detail")
-            
-    # 3. Location / Residence
+        if 2 < len(val) < 60:
+            database.add_user_memory(user_id, f"Works as/Is: {val}", category="detail", memory_type="fact")
+
     loc_match = re.search(r'\b(?:i live in|i am from|i\'m from|i stay in|located in)\s+([^.,!?\n]+)', text, re.IGNORECASE)
     if loc_match:
         val = loc_match.group(1).strip()
-        if len(val) > 2 and len(val) < 50:
-            database.add_user_memory(user_id, f"Lives in/From: {val}", category="detail")
-            
-    # 4. Emotional State & Problems / Struggles
+        if 2 < len(val) < 50:
+            database.add_user_memory(user_id, f"Lives in/From: {val}", category="detail", memory_type="fact")
+
     feel_match = re.search(r'\b(?:i am feeling|i feel|feeling|i\'m feeling|so)\s+(stressed|sad|depressed|anxious|lonely|exhausted|tired|worried|scared|upset|overwhelmed|heartbroken)\s*([^.,!?\n]*)', text, re.IGNORECASE)
     if feel_match:
         emotion = feel_match.group(1).strip()
         reason = feel_match.group(2).strip()
         desc = f"Feeling {emotion} {reason}".strip()
         if len(desc) < 100:
-            database.add_user_memory(user_id, f"Emotional state: {desc}", category="problem")
-            
+            database.add_user_memory(user_id, f"Emotional state: {desc}", category="problem", memory_type="emotional_state", valid_until=ttl_48h)
+
     prob_match = re.search(r'\b(?:i have a problem|i\'m struggling with|trouble with|worried about|hard time with|can\'t sleep|cannot sleep)\s+([^.,!?\n]+)', text, re.IGNORECASE)
     if prob_match:
         val = prob_match.group(1).strip()
-        if len(val) > 2 and len(val) < 100:
-            database.add_user_memory(user_id, f"Struggle/Problem: {val}", category="problem")
+        if 2 < len(val) < 100:
+            database.add_user_memory(user_id, f"Struggle/Problem: {val}", category="problem", memory_type="temporary", valid_until=ttl_48h)
 
-    # 5. Relationships & Family details
     rel_match = re.search(r'\b(?:my|i have a)\s+(dog|cat|pet|friend|brother|sister|wife|girlfriend|ex|mom|dad|mother|father|boss)\s+(?:is named|name is|called)?\s*([^.,!?\n]+)', text, re.IGNORECASE)
     if rel_match:
         rel_type = rel_match.group(1).strip()
         val = rel_match.group(2).strip()
-        if len(val) > 1 and len(val) < 60:
-            database.add_user_memory(user_id, f"Family/Friend detail: {rel_type} - {val}", category="detail")
+        if 1 < len(val) < 60:
+            database.add_user_memory(user_id, f"Family/Friend detail: {rel_type} - {val}", category="detail", memory_type="fact")
 
-    # 6. Event Extraction & Pending Event Registration
     event_match = re.search(r'\b(?:i have|my)\s+(an?\s+)?(interview|exam|presentation|meeting|doctor appointment|flight|trip)\s+([^.,!?\n]*)', text, re.IGNORECASE)
     if event_match:
         ev_type = event_match.group(2).strip()
         ev_details = event_match.group(3).strip()
         full_title = f"{ev_type.capitalize()} {ev_details}".strip()
-        database.add_user_memory(user_id, f"Pending Event: {full_title}", category="event", importance=3)
+        database.add_user_memory(user_id, f"Pending Event: {full_title}", category="event", importance=3, memory_type="event", valid_until=ttl_3d)
         database.add_user_event(user_id, event_title=full_title, event_type=ev_type)
 
 
@@ -94,7 +97,6 @@ from emotion_engine import (
     EmotionRegistry,
     EmotionStateManager,
     EmotionDetector,
-    ResponseStyleComposer,
     EmotionStateRepository,
     ConfigurationProvider,
 )
@@ -106,7 +108,6 @@ _emotion_registry = get_default_registry()
 _emotion_repo = None
 _emotion_state_manager = None
 _emotion_detector = None
-_response_style_composer = None
 _config_provider = None
 _text_adapter = TextOutputAdapter()
 _media_adapter = MediaOutputAdapter()
@@ -134,9 +135,13 @@ def get_emotion_detector() -> EmotionDetector:
     return _emotion_detector
 
 
-def get_response_style_composer() -> ResponseStyleComposer:
+_response_style_composer = None
+
+
+def get_response_style_composer():
     global _response_style_composer
     if _response_style_composer is None:
+        from emotion_engine import ResponseStyleComposer
         _response_style_composer = ResponseStyleComposer(registry=_emotion_registry)
     return _response_style_composer
 
@@ -162,44 +167,52 @@ async def generate_response(
     memories: list = None,
     user_id: int = None
 ) -> str:
+    """Generate one response using the resolved application state.
+
+    Runtime flow:
+    safety -> memory -> emotion state -> response plan -> context compiler -> LLM
+    -> structured output validator -> backend-authorized media compatibility bridge.
     """
-    Sends the conversation history, user input, dynamic system prompt,
-    and Emotion Engine behavioral guidance to Venice.ai and returns the generated response.
-    """
-    # 0. Centralized Input Safety Check
     input_safety = safety_engine.scan_input_safety(user_message)
     if not input_safety.is_safe:
         return input_safety.refusal_message
 
-    # Use ranked relevance-aware memory retrieval if user_id is given and memories not explicitly passed
     if user_id and memories is None:
-        memories = database.get_user_memories_ranked(user_id, current_message=user_message, limit=10)
+        memories = database.get_user_memories_ranked(
+            user_id, current_message=user_message, limit=10
+        )
+    memories = memories or []
 
-    # 1. Process Emotion Engine Pipeline if user_id is provided
+    rel_info = get_relationship_status(relationship_xp)
+    relationship = RelationshipState(
+        level=rel_info["level"],
+        xp=relationship_xp,
+        title=rel_info["title"],
+        guideline=rel_info["guideline"],
+        chat_mode=chat_mode,
+        user_gender="female" if user_orientation == "lesbian" else "male",
+        ai_gender="female",
+        user_nickname=user_nickname,
+        ai_nickname=ai_nickname,
+    )
+
+    emotion_context = EmotionContext()
     emotion_fragment = None
-    response_plan = None
     if user_id:
         try:
             state_mgr = get_emotion_state_manager()
             detector = get_emotion_detector()
-            composer = get_response_style_composer()
             cfg_provider = get_config_provider()
-
-            # A. Get current state & preferences
+            composer = get_response_style_composer()
             curr_state = state_mgr.get_state(user_id, persona_key)
             user_prefs = cfg_provider.get_user_preferences(user_id, persona_key)
-
-            # B. Detect proposed emotion changes
-            recent_context = chat_history[-6:] if chat_history else []
             detection_res = await detector.detect_emotion_and_events(
                 user_message=user_message,
-                recent_history=recent_context,
+                recent_history=chat_history[-6:] if chat_history else [],
                 current_state=curr_state,
                 memories=memories,
                 preferences=user_prefs,
             )
-
-            # C. Apply transitions via policy & update state
             updated_state = state_mgr.apply_proposed_changes(
                 user_id=user_id,
                 persona_key=persona_key,
@@ -207,9 +220,8 @@ async def generate_response(
                 trigger_event=detection_res.detected_event,
                 preferences=user_prefs,
             )
-
-            # D. Compose Response Plan & Prompt Instructions
-            response_plan = composer.compose_plan(
+            emotion_context = _emotion_context_from_state(updated_state)
+            emo_plan = composer.compose_plan(
                 current_state=updated_state,
                 base_persona_key=persona_key,
                 relationship_xp=relationship_xp,
@@ -217,12 +229,22 @@ async def generate_response(
                 memories=memories,
                 preferences=user_prefs,
             )
-            emotion_fragment = response_plan.prompt_fragment
+            emotion_fragment = emo_plan.prompt_fragment
         except Exception as err:
-            logger.error(f"Error in Emotion Engine pipeline: {err}")
-            emotion_fragment = None
+            logger.exception("Emotion pipeline failed; continuing with neutral state: %s", err)
 
-    # 2. Construct the system prompt instructions with dynamic emotion fragment
+    available_gifs = list(get_gif_descriptions().keys())
+    response_plan = response_planner.plan(
+        relationship=relationship,
+        emotion=emotion_context,
+        user_message=user_message,
+        memories=memories,
+        available_gifs=available_gifs,
+    )
+
+    if response_plan.safety_decision and not response_plan.safety_decision.is_safe:
+        return response_plan.safety_decision.override_response or input_safety.refusal_message
+
     system_instruction = construct_system_prompt(
         persona_key=persona_key,
         relationship_xp=relationship_xp,
@@ -232,44 +254,66 @@ async def generate_response(
         chat_mode=chat_mode,
         memories=memories,
         emotion_fragment=emotion_fragment,
+        response_plan=response_plan,
+        emotion_context=emotion_context,
     )
-    
-    # 3. Build the message list for Venice API
+
     messages = [{"role": "system", "content": system_instruction}]
-    
-    # Add recent history (up to recent 8 messages to optimize token count and save credits)
-    for msg in chat_history[-8:]:
-        messages.append({
-            "role": msg["role"],
-            "content": msg["content"]
-        })
-        
-    # Append the new user message
-    messages.append({
-        "role": "user",
-        "content": user_message
-    })
-    
+    for msg in (chat_history or [])[-8:]:
+        if msg.get("role") in {"user", "assistant", "system"} and isinstance(msg.get("content"), str):
+            messages.append({"role": msg["role"], "content": msg["content"]})
+    messages.append({"role": "user", "content": user_message})
+
     try:
-        # Call the Venice API chat completion
         response = await client.chat.completions.create(
             model=VENICE_MODEL,
             messages=messages,
-            temperature=0.85,
-            max_tokens=150
+            temperature=0.75,
+            max_tokens=220,
         )
+        raw_output = (response.choices[0].message.content or "").strip()
 
-        # Extract response content
-        ai_reply = response.choices[0].message.content.strip()
-        # Output Safety Middleware Scan
-        return safety_engine.scan_output_safety(ai_reply)
+        persona = getattr(compiler, "registry", None).get(persona_key) if 'compiler' in globals() else None
+        character_appearance = getattr(persona, "appearance", None) or "Juhi, a young Indian software developer living in Bangalore"
+        media = response_plan.media or {}
+        validated = validate_llm_response(
+            raw_output,
+            allowed_gifs=available_gifs,
+            image_allowed=bool(media.get("image_requested")),
+            character_appearance=character_appearance,
+        )
+        return to_legacy_compatible_text(validated)
 
     except Exception as e:
-        logger.error(f"Error calling Venice AI API: {e}")
-        return (
-            f"❌ My thoughts are a bit scrambled right now... (API Error: {str(e)[:100]}). "
-            "Please check if your Venice.ai API Key is valid or try again in a bit!"
-        )
+        logger.error("Error calling Venice AI API: %s", e)
+        return "my thoughts are a bit scrambled right now... try me again in a bit?"
+
+
+def _emotion_context_from_state(state) -> EmotionContext:
+    """Convert the emotion-engine state into the neutral internal schema."""
+    if state is None:
+        return EmotionContext()
+    if isinstance(state, dict):
+        get = state.get
+    else:
+        get = lambda key, default=None: getattr(state, key, default)
+
+    emotion = get("current_emotion", get("emotion", get("emotion_id", "neutral")))
+    intensity = get("intensity", get("emotion_intensity", 0.0))
+    trigger = get("trigger", get("reason", None))
+    behaviors = get("behaviors", []) or []
+    avoid = get("avoid", []) or []
+    try:
+        intensity = float(intensity)
+    except (TypeError, ValueError):
+        intensity = 0.0
+    return EmotionContext(
+        current_emotion=str(emotion or "neutral"),
+        intensity=max(0.0, min(1.0, intensity)),
+        trigger=str(trigger) if trigger else None,
+        behaviors=[str(x) for x in behaviors if x],
+        avoid=[str(x) for x in avoid if x],
+    )
 
 
 async def generate_image(prompt: str, seed: int = None) -> str:
@@ -294,7 +338,7 @@ async def generate_image(prompt: str, seed: int = None) -> str:
         "aspect_ratio": "1:1",
         "negative_prompt": "cartoon, anime, 3d render, drawing, painting, illustration, sketch, low quality, bad anatomy, deformed face, deformed eyes, extra limbs, ugly, unrealistic",
         "return_binary": False,
-        "safe_mode": False
+        "safe_mode": True
     }
     if seed is not None:
         payload["seed"] = (int(seed) % 999999999) + 1
@@ -487,18 +531,10 @@ async def evaluate_proactive_decision(
     except Exception as e:
         logger.error(f"Error in proactive decision engine: {e}")
 
-    # Heuristic fallback if LLM call fails or returns invalid JSON
-    if memories and len(memories) > 0:
-        first_mem = memories[0]
-        return {
-            "decision": "SEND",
-            "reason": f"Fallback heuristic triggered on pending memory: {first_mem[:40]}",
-            "message": f"Hey {user_nickname}! 🌸 Was just thinking about you... hope everything is going well today! 🥰"
-        }
-
+    # Fail closed: an unavailable/invalid decision engine must never authorize a send.
     return {
         "decision": "DONT_SEND",
-        "reason": "No actionable pending memory or trigger context.",
+        "reason": "Proactive decision engine failed or returned invalid JSON; fail-closed policy prevented sending.",
         "message": None
     }
 

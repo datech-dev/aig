@@ -108,6 +108,18 @@ def scan_input_safety(user_message: str) -> SafetyResult:
     return SafetyResult(is_safe=True)
 
 
+def contains_sexual_intent(user_message: str) -> bool:
+    """Compatibility helper used by the response planner and tests.
+
+    This intentionally delegates to the authoritative input-safety classifier
+    rather than maintaining a second independent rule set.
+    """
+    if not user_message:
+        return False
+    result = scan_input_safety(user_message)
+    return (not result.is_safe) and result.category in {"explicit_image", "explicit_content"}
+
+
 def build_safe_image_prompt(user_prompt: str, character_appearance: str) -> str:
     """
     Safe Image Prompt Builder:
