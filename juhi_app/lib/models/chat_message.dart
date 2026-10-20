@@ -33,9 +33,9 @@ class ChatMessage {
   }
 
   String? get gifUrl {
-    if (!hasGif || gifName == null || gifName!.isEmpty) return null;
-    final name = gifName!.endsWith('.gif') ? gifName! : '$gifName.gif';
-    return '${AppConstants.baseUrl}/gifs/$name';
+    if (!hasGif || gifName == null || gifName!.trim().isEmpty) return null;
+    final clean = Uri.encodeComponent(gifName!.trim().toLowerCase().replaceAll('.gif', ''));
+    return '${AppConstants.baseUrl}/gifs/$clean.gif';
   }
 
   factory ChatMessage.fromJson(Map<String, dynamic> json) {

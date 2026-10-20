@@ -289,24 +289,27 @@ class _GifMediaCard extends StatelessWidget {
         boxShadow: AppTheme.cardShadow,
       ),
       clipBehavior: Clip.antiAlias,
-      child: CachedNetworkImage(
-        imageUrl: gifUrl,
+      child: Image.network(
+        gifUrl,
         fit: BoxFit.cover,
-        placeholder: (context, url) => Shimmer.fromColors(
-          baseColor: AppTheme.surface,
-          highlightColor: AppTheme.card,
-          child: Container(
-            height: 160,
-            width: double.infinity,
-            color: AppTheme.surface,
-          ),
-        ),
-        errorWidget: (context, url, error) => Padding(
+        loadingBuilder: (context, child, loadingProgress) {
+          if (loadingProgress == null) return child;
+          return Shimmer.fromColors(
+            baseColor: AppTheme.surface,
+            highlightColor: AppTheme.card,
+            child: Container(
+              height: 160,
+              width: double.infinity,
+              color: AppTheme.surface,
+            ),
+          );
+        },
+        errorBuilder: (context, error, stackTrace) => Padding(
           padding: const EdgeInsets.all(12),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('🎞️', style: TextStyle(fontSize: 18)),
+              const Icon(Icons.gif_box_rounded, color: AppTheme.primary, size: 24),
               const SizedBox(width: 8),
               Flexible(
                 child: Text(

@@ -1103,6 +1103,8 @@ async def handle_api_chat(request):
             gif_name = choose_gif(query, user_id, persona_key)
             if not gif_name:
                 has_gif = False
+            else:
+                gif_name = gif_name.lower().strip()
                 
         if not is_subscribed:
             database.increment_free_messages(user_id)
