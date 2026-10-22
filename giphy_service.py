@@ -164,7 +164,7 @@ def search_and_fetch_gif(query: str, user_id: int = 0) -> Optional[Dict[str, str
         fresh_items = [it for it in items if it.get("id") not in recent_list]
         selected_item = random.choice(fresh_items if fresh_items else items)
         
-        gid = selected_item.get("id")
+        gid = str(selected_item.get("id") or "").lower().strip()
         title = selected_item.get("title", chosen_search)
         
         # Prefer fixed_height (200px height, optimized ~200-400KB for mobile)

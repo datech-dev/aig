@@ -2099,8 +2099,13 @@ async def start_webhook_server(application, port=8080):
     app.router.add_get('/api/proactive/check', handle_api_proactive_check)
     app.router.add_post('/api/proactive/check', handle_api_proactive_check)
     
-    app.router.add_static('/assets', 'assets')
-    app.router.add_static('/gifs', 'gifs')
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    assets_dir = os.path.join(base_dir, 'assets')
+    gifs_dir = os.path.join(base_dir, 'gifs')
+    os.makedirs(assets_dir, exist_ok=True)
+    os.makedirs(gifs_dir, exist_ok=True)
+    app.router.add_static('/assets', assets_dir)
+    app.router.add_static('/gifs', gifs_dir)
     
     # Store reference to telegram bot application to allow sending messages in routes
     app['tg_app'] = application
