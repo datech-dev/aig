@@ -1144,14 +1144,23 @@ async def handle_api_chat(request):
                     logger.error(f"Failed generating selfie image for user {user_id}: {img_err}")
                     has_image = False
             
+        user_wants_gif = any(
+            phrase in text.lower()
+            for phrase in ("gif", "reaction gif", "send a gif", "send gif")
+        ) or any(
+            phrase in text.lower()
+            for phrase in ("kiss", "mwah", "blush", "lip lock", "cuddle")
+        )
+
         gif_match = re.search(r'\[SEND_GIF:\s*(.*?)(?:\]|$)', cleaned_reply, re.IGNORECASE)
         has_gif = False
         gif_name = None
         
-        if gif_match:
+        if gif_match or user_wants_gif:
             has_gif = True
-            query = gif_match.group(1).strip()
-            cleaned_reply = cleaned_reply.replace(gif_match.group(0), "").strip()
+            query = gif_match.group(1).strip() if gif_match else text
+            if gif_match:
+                cleaned_reply = cleaned_reply.replace(gif_match.group(0), "").strip()
             from bot import choose_gif
             gif_name = choose_gif(query, user_id, persona_key)
             if not gif_name:

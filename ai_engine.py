@@ -513,7 +513,9 @@ async def generate_response(
         "explain", "why do", "how does", "tell me about", "what is the difference",
         "detailed", "in depth", "advice on", "help me understand", "step by step"
     ]) or len(user_message.split()) > 40
-    turn_max_tokens = 220 if needs_long_reply else 55
+    media_in_plan = response_plan.media or {}
+    has_media_intent = bool(media_in_plan.get("image_requested") or media_in_plan.get("gif_requested"))
+    turn_max_tokens = 250 if (needs_long_reply or has_media_intent) else 140
 
     try:
         response = await client.chat.completions.create(

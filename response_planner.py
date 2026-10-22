@@ -158,7 +158,9 @@ class ResponsePlanner:
                 "send me your photo",
             )
         )
-        gif_requested = any(token in lower for token in ("gif", "reaction gif"))
+        gif_requested = any(token in lower for token in ("gif", "reaction gif", "send a gif", "send gif")) or any(
+            phrase in lower for phrase in ("kiss", "mwah", "blush", "lip lock", "cuddle")
+        )
         return {
             "image_requested": image_requested,
             "gif_allowed": bool(available_gifs),
