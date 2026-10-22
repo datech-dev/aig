@@ -72,11 +72,13 @@ void main() {
         'reply': 'Here is a selfie from my room! 📸',
         'has_image': true,
         'image_prompt': 'Juhi, casual selfie, wearing stylish hoodie, smiling',
+        'image_url': '/assets/generated/selfie_1.png',
         'has_gif': false,
       }, 'Send me a selfie');
 
       expect(imgMsg.hasImage, true);
       expect(imgMsg.imagePrompt, 'Juhi, casual selfie, wearing stylish hoodie, smiling');
+      expect(imgMsg.imageUrl, '${AppConstants.baseUrl}/assets/generated/selfie_1.png');
     });
 
     test('ChatMessage handles paywall response', () {
@@ -194,6 +196,7 @@ void main() {
       expect(NotificationService.channelName.contains('Juhi'), true);
       expect(AppConstants.apiDeviceToken, '/api/device-token');
       expect(AppConstants.apiTestNotification, '/api/notifications/test');
+      expect(AppConstants.apiProactiveCheck, '/api/proactive/check');
     });
   });
 }

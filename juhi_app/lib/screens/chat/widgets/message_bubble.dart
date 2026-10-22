@@ -256,10 +256,11 @@ class _AiBubble extends StatelessWidget {
                     gifName: message.gifName ?? 'reaction',
                   ),
 
-                // Image placeholder / preview
+                // Image preview / selfie rendering
                 if (message.hasImage)
                   _ImageMediaCard(
                     prompt: message.imagePrompt ?? 'Selfie with Juhi',
+                    imageUrl: message.imageUrl,
                   ),
               ],
             ),
@@ -332,8 +333,9 @@ class _GifMediaCard extends StatelessWidget {
 // ── Image Media Card ──────────────────────────────────────────────────────────
 class _ImageMediaCard extends StatelessWidget {
   final String prompt;
+  final String? imageUrl;
 
-  const _ImageMediaCard({required this.prompt});
+  const _ImageMediaCard({required this.prompt, this.imageUrl});
 
   void _showImageDialog(BuildContext context) {
     showDialog(
@@ -354,23 +356,43 @@ class _ImageMediaCard extends StatelessWidget {
             children: [
               ClipRRect(
                 borderRadius: BorderRadius.circular(16),
-                child: Image.asset(
-                  'assets/images/juhi_avatar.png',
-                  height: 300,
-                  width: double.infinity,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => Container(
-                    height: 200,
-                    color: AppTheme.surface,
-                    child: const Center(
-                      child: Icon(Icons.image, size: 60, color: AppTheme.primary),
-                    ),
-                  ),
-                ),
+                child: imageUrl != null && imageUrl!.isNotEmpty
+                    ? CachedNetworkImage(
+                        imageUrl: imageUrl!,
+                        height: 320,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                        placeholder: (context, url) => Container(
+                          height: 320,
+                          color: AppTheme.surface,
+                          child: const Center(
+                            child: CircularProgressIndicator(color: AppTheme.primary),
+                          ),
+                        ),
+                        errorWidget: (_, __, ___) => Image.asset(
+                          'assets/images/juhi_avatar.png',
+                          height: 300,
+                          width: double.infinity,
+                          fit: BoxFit.cover,
+                        ),
+                      )
+                    : Image.asset(
+                        'assets/images/juhi_avatar.png',
+                        height: 300,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
+                          height: 200,
+                          color: AppTheme.surface,
+                          child: const Center(
+                            child: Icon(Icons.image, size: 60, color: AppTheme.primary),
+                          ),
+                        ),
+                      ),
               ),
               const SizedBox(height: 12),
               Text(
-                '📸 Juhi\'s Visual Memory',
+                '📸 Juhi\'s Photo',
                 style: const TextStyle(
                   color: Colors.white,
                   fontWeight: FontWeight.w700,
@@ -421,21 +443,43 @@ class _ImageMediaCard extends StatelessWidget {
             Stack(
               alignment: Alignment.center,
               children: [
-                Image.asset(
-                  'assets/images/juhi_avatar.png',
-                  height: 180,
-                  width: double.infinity,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => Container(
-                    height: 140,
-                    color: AppTheme.surface,
-                    child: const Center(
-                      child: Icon(Icons.photo_camera_rounded, size: 40, color: AppTheme.primary),
-                    ),
-                  ),
-                ),
+                imageUrl != null && imageUrl!.isNotEmpty
+                    ? CachedNetworkImage(
+                        imageUrl: imageUrl!,
+                        height: 200,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                        placeholder: (context, url) => Shimmer.fromColors(
+                          baseColor: AppTheme.surface,
+                          highlightColor: AppTheme.card,
+                          child: Container(
+                            height: 200,
+                            width: double.infinity,
+                            color: AppTheme.surface,
+                          ),
+                        ),
+                        errorWidget: (_, __, ___) => Image.asset(
+                          'assets/images/juhi_avatar.png',
+                          height: 180,
+                          width: double.infinity,
+                          fit: BoxFit.cover,
+                        ),
+                      )
+                    : Image.asset(
+                        'assets/images/juhi_avatar.png',
+                        height: 180,
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
+                          height: 140,
+                          color: AppTheme.surface,
+                          child: const Center(
+                            child: Icon(Icons.photo_camera_rounded, size: 40, color: AppTheme.primary),
+                          ),
+                        ),
+                      ),
                 Container(
-                  height: 180,
+                  height: 200,
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
                       colors: [

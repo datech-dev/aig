@@ -1,3 +1,7 @@
+import re
+import os
+import time
+import shutil
 import logging
 import json
 import asyncio
@@ -998,9 +1002,20 @@ async def handle_api_history(request):
         # Clean up history for app UI
         cleaned_history = []
         for msg in history:
+            content = msg.get("content") or ""
+            img_match = re.search(r'\[IMAGE:\s*(.*?)(?:\]|$)', content)
+            has_img = False
+            img_url = None
+            if img_match:
+                has_img = True
+                img_url = img_match.group(1).strip()
+                content = content.replace(img_match.group(0), "").strip()
+
             cleaned_history.append({
                 "role": msg["role"],
-                "content": msg["content"],
+                "content": content,
+                "has_image": has_img,
+                "image_url": img_url,
                 "timestamp": msg.get("timestamp", "")
             })
             
@@ -1081,15 +1096,53 @@ async def handle_api_chat(request):
             user_id=user_id
         )
         
+        import os, time, shutil, safety_engine
+
         image_match = re.search(r'\[GENERATE_IMAGE:\s*(.*?)(?:\]|$)', reply, re.IGNORECASE | re.DOTALL)
         cleaned_reply = reply
         has_image = False
         image_prompt = ""
+        image_url = None
         
-        if image_match:
+        user_wants_photo = any(
+            phrase in text.lower()
+            for phrase in ("selfie", "photo", "picture", "pic", "pics", "show yourself", "what you look like")
+        ) and any(
+            act in text.lower()
+            for act in ("send", "show", "give", "share", "take", "click", "see", "your", "ur", "a", "can i", "plz", "please")
+        )
+        
+        if image_match or user_wants_photo:
             has_image = True
-            image_prompt = image_match.group(1).strip()
-            cleaned_reply = reply.replace(image_match.group(0), "").strip()
+            image_prompt = image_match.group(1).strip() if image_match else "Juhi casual selfie smiling warmly"
+            if image_match:
+                cleaned_reply = reply.replace(image_match.group(0), "").strip()
+
+            character_appearance = persona.get(
+                "appearance",
+                "Juhi, a young Indian software developer living in Bangalore, stylish top, smiling warmly, casual apartment background"
+            )
+            safe_prompt = safety_engine.build_safe_image_prompt(image_prompt, character_appearance)
+            
+            # Check image credits
+            has_credit = database.use_image_credit(user_id)
+            if not has_credit and not is_subscribed:
+                has_image = False
+                cleaned_reply += f"\n\n📸 Aww {u_nick}, you're out of selfie photo credits! 💕 Unlock 10 more in the Store so I can keep sending you photos!"
+            else:
+                try:
+                    seed = user_id + int(time.time())
+                    temp_img_path = await ai_engine.generate_image(safe_prompt, seed=seed)
+                    gen_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "generated")
+                    os.makedirs(gen_dir, exist_ok=True)
+                    filename = f"selfie_{user_id}_{int(time.time())}.png"
+                    dest_path = os.path.join(gen_dir, filename)
+                    shutil.copyfile(temp_img_path, dest_path)
+                    image_url = f"/assets/generated/{filename}"
+                    logger.info(f"[IMAGE GEN] Generated selfie for user {user_id} saved to {dest_path}")
+                except Exception as img_err:
+                    logger.error(f"Failed generating selfie image for user {user_id}: {img_err}")
+                    has_image = False
             
         gif_match = re.search(r'\[SEND_GIF:\s*(.*?)(?:\]|$)', cleaned_reply, re.IGNORECASE)
         has_gif = False
@@ -1115,9 +1168,10 @@ async def handle_api_chat(request):
         else:
             remaining = 999
             
-        # Log to DB
+        # Log to DB (include image tag so history displays photo upon re-opening)
+        msg_to_save = f"{cleaned_reply}\n[IMAGE: {image_url}]" if (has_image and image_url) else cleaned_reply
         database.add_chat_message(user_id, persona_key, "user", text)
-        database.add_chat_message(user_id, persona_key, "assistant", cleaned_reply)
+        database.add_chat_message(user_id, persona_key, "assistant", msg_to_save)
         
         # Log AI reply analytics event
         database.log_user_analytics_event(user_id, "ai_reply_sent", "chat", "android_app", {
@@ -1135,6 +1189,7 @@ async def handle_api_chat(request):
             "reply": cleaned_reply,
             "has_image": has_image,
             "image_prompt": image_prompt,
+            "image_url": image_url,
             "has_gif": has_gif,
             "gif_name": gif_name,
             "remaining_free": remaining,
@@ -1168,13 +1223,17 @@ async def handle_api_toggle_mode(request):
 
 
 async def handle_api_memories(request):
-    """API endpoint to fetch or clear memories."""
+    """API endpoint to fetch, backfill, or clear memories."""
     if request.method == "GET":
         user_id_str = request.query.get("user_id")
         if not user_id_str:
             return web.json_response({"error": "Missing user_id parameter"}, status=400)
         user_id = int(user_id_str)
         memories = database.get_user_memories(user_id)
+        if not memories:
+            # Auto-backfill if user has past chat history
+            await ai_engine.backfill_user_memories_from_history(user_id)
+            memories = database.get_user_memories(user_id)
         return web.json_response({"success": True, "memories": memories})
     elif request.method == "POST":
         data = await request.json()
@@ -1183,6 +1242,10 @@ async def handle_api_memories(request):
         if action == "clear" and user_id:
             database.clear_user_memories(int(user_id))
             return web.json_response({"success": True, "message": "Memories cleared"})
+        elif action == "backfill" and user_id:
+            count = await ai_engine.backfill_user_memories_from_history(int(user_id))
+            memories = database.get_user_memories(int(user_id))
+            return web.json_response({"success": True, "memories": memories, "extracted": count})
         return web.json_response({"success": False, "error": "Invalid action or user_id"}, status=400)
 
 
@@ -1225,6 +1288,70 @@ async def handle_api_test_notification(request):
         })
     except Exception as e:
         logger.error(f"Error in handle_api_test_notification: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+
+async def handle_api_proactive_check(request):
+    """
+    API endpoint for mobile app to check or trigger proactive companion messages.
+    Supports GET /api/proactive/check?user_id=...&force=... and POST /api/proactive/check.
+    If a proactive message is decided, it is automatically saved to chat_history so it
+    appears directly in the user's conversation.
+    """
+    try:
+        user_id = None
+        force = False
+        if request.method == "POST":
+            try:
+                data = await request.json()
+                user_id = data.get("user_id")
+                force = bool(data.get("force", False))
+            except Exception:
+                pass
+        if not user_id:
+            user_id = request.query.get("user_id")
+            force = request.query.get("force", "false").lower() in ("true", "1", "yes")
+
+        if not user_id:
+            return web.json_response({"success": False, "error": "Missing user_id"}, status=400)
+
+        user_id = int(user_id)
+        from proactive_engine import evaluate_proactive_for_user
+
+        eval_res = await evaluate_proactive_for_user(user_id, force=force)
+        decision = str(eval_res.get("decision", "DONT_SEND")).upper()
+        reason = eval_res.get("reason", "")
+        message = eval_res.get("message")
+
+        settings = database.get_user_settings(user_id)
+        p_key = (settings.get("active_persona", "juhi") if settings else "juhi")
+        persona = config.PERSONAS.get(p_key, config.PERSONAS["juhi"])
+        ai_nickname = (settings.get("ai_nickname") if settings else None) or persona.get("name", "Juhi")
+
+        if decision == "SEND" and message:
+            # Save directly to user chat history
+            database.add_chat_message(user_id, p_key, "assistant", message)
+            database.log_proactive_decision(user_id, "SEND", reason, message)
+            database.add_xp(user_id, amount=5)
+
+            logger.info(f"[API PROACTIVE] Triggered and delivered for user {user_id}: '{message}' (Reason: {reason})")
+            return web.json_response({
+                "success": True,
+                "has_proactive": True,
+                "title": f"{ai_nickname} 💕",
+                "message": message,
+                "reason": reason,
+                "timestamp": datetime.now().isoformat()
+            })
+        else:
+            database.log_proactive_decision(user_id, "DONT_SEND", reason, None)
+            return web.json_response({
+                "success": True,
+                "has_proactive": False,
+                "reason": reason
+            })
+    except Exception as e:
+        logger.error(f"Error in handle_api_proactive_check: {e}")
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
 
@@ -1929,6 +2056,8 @@ async def start_webhook_server(application, port=8080):
     app.router.add_post('/api/memories', handle_api_memories)
     app.router.add_post('/api/device-token', handle_api_device_token)
     app.router.add_post('/api/notifications/test', handle_api_test_notification)
+    app.router.add_get('/api/proactive/check', handle_api_proactive_check)
+    app.router.add_post('/api/proactive/check', handle_api_proactive_check)
     
     app.router.add_static('/assets', 'assets')
     app.router.add_static('/gifs', 'gifs')
@@ -1951,5 +2080,28 @@ async def start_webhook_server(application, port=8080):
         
     asyncio.create_task(start_daily_report_scheduler())
 
+    # Start proactive companion background scheduler loop
+    try:
+        from proactive_engine import proactive_scheduler_loop
+        asyncio.create_task(proactive_scheduler_loop(application=application, interval_minutes=30))
+        logger.info("[PROACTIVE SCHEDULER] Periodic background loop initialized.")
+    except Exception as e_pro:
+        logger.error(f"Error starting proactive scheduler loop: {e_pro}")
+
     return runner
 
+
+if __name__ == "__main__":
+    async def main():
+        runner = await start_webhook_server(application=None, port=8080)
+        logger.info("REST API and Webhook server started on http://0.0.0.0:8080")
+        try:
+            while True:
+                await asyncio.sleep(3600)
+        except (KeyboardInterrupt, asyncio.CancelledError):
+            await runner.cleanup()
+
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Server stopped.")

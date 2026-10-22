@@ -20,14 +20,38 @@ class ChatScreen extends ConsumerStatefulWidget {
   ConsumerState<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends ConsumerState<ChatScreen> {
+class _ChatScreenState extends ConsumerState<ChatScreen>
+    with WidgetsBindingObserver {
   final ScrollController _scrollController = ScrollController();
   bool _showLevelUp = false;
   String _levelUpTitle = '';
   int _newLevel = 1;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // Check if Juhi has an unread or due proactive message on opening the chat
+      ref
+          .read(chatProvider.notifier)
+          .checkProactiveMessage(force: false, showNotification: false);
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // When user returns to the app, check if Juhi has sent a proactive check-in
+      ref
+          .read(chatProvider.notifier)
+          .checkProactiveMessage(force: false, showNotification: true);
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _scrollController.dispose();
     super.dispose();
   }

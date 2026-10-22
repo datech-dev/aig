@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/api_service.dart';
 import '../data/local_storage.dart';
 import '../models/chat_message.dart';
+import '../services/notification_service.dart';
 
 // ── Chat Provider ──────────────────────────────────────────────────────────────
 final chatProvider =
@@ -23,6 +24,26 @@ class ChatNotifier extends AsyncNotifier<List<ChatMessage>> {
         final history = (data['history'] as List)
             .map((m) => ChatMessage.fromJson(m as Map<String, dynamic>))
             .toList();
+
+        // If history is completely empty, Juhi proactively starts the conversation!
+        if (history.isEmpty) {
+          try {
+            final proRes = await apiService.checkProactive(userId, force: true);
+            if (proRes['success'] == true &&
+                proRes['has_proactive'] == true &&
+                proRes['message'] != null) {
+              final proactiveMsg = ChatMessage(
+                role: 'assistant',
+                content: proRes['message'].toString(),
+                timestamp: DateTime.now(),
+              );
+              return [proactiveMsg];
+            }
+          } catch (proErr) {
+            // ignore: avoid_print
+            print('[ChatProvider] Proactive first conversation check: $proErr');
+          }
+        }
         return history;
       }
     } catch (e) {
@@ -30,6 +51,58 @@ class ChatNotifier extends AsyncNotifier<List<ChatMessage>> {
       print('[ChatProvider] Error loading history: $e');
     }
     return [];
+  }
+
+  /// Checks whether Juhi has a proactive message or check-in to initiate
+  Future<bool> checkProactiveMessage({
+    bool force = false,
+    bool showNotification = false,
+  }) async {
+    final userId = await LocalStorage.getUserId();
+    if (userId == null) return false;
+
+    try {
+      final proRes = await apiService.checkProactive(userId, force: force);
+      if (proRes['success'] == true &&
+          proRes['has_proactive'] == true &&
+          proRes['message'] != null) {
+        final msgText = proRes['message'].toString();
+        final current = state.valueOrNull ?? [];
+
+        // Avoid adding duplicate if already present as last message
+        if (current.isNotEmpty && current.last.content == msgText) {
+          return false;
+        }
+
+        final proactiveMsg = ChatMessage(
+          role: 'assistant',
+          content: msgText,
+          timestamp: DateTime.now(),
+        );
+        state = AsyncData([...current, proactiveMsg]);
+
+        if (showNotification) {
+          final isProactiveEnabled = await LocalStorage.isProactiveEnabled();
+          final isNotifsEnabled = await LocalStorage.isNotificationsEnabled();
+          final isSoundEnabled = await LocalStorage.isSoundEnabled();
+          if (isProactiveEnabled && isNotifsEnabled) {
+            final title = (proRes['title'] ?? 'Juhi 💕').toString();
+            await notificationService.showJuhiNotification(
+              id: 8888,
+              title: title,
+              body: msgText,
+              playSound: isSoundEnabled,
+              payload: '/chat',
+            );
+          }
+        }
+        return true;
+      }
+    } catch (e) {
+      // ignore: avoid_print
+      print('[ChatProvider] Check proactive error: $e');
+    }
+    return false;
   }
 
   /// Sends a message and returns the backend response map (with level-up/paywall flags)

@@ -120,8 +120,14 @@ class ResponsePlanner:
 
     @staticmethod
     def _detect_media_intent(message: str, available_gifs: Sequence[str]):
-        lower = message.lower()
-        image_requested = any(
+        lower = (message or "").lower()
+        photo_keywords = ("photo", "picture", "selfie", "pic", "pics", "image", "look like", "show yourself")
+        action_keywords = ("send", "show", "give", "share", "take", "click", "your", "ur", "u", "a", "see", "want", "can i", "plz", "please")
+        
+        has_photo_word = any(pk in lower for pk in photo_keywords)
+        has_action_word = any(ak in lower for ak in action_keywords)
+
+        image_requested = (has_photo_word and has_action_word) or any(
             phrase in lower
             for phrase in (
                 "send me a photo",
@@ -130,8 +136,26 @@ class ResponsePlanner:
                 "send a picture",
                 "send me a selfie",
                 "send a selfie",
+                "send me your selfie",
+                "send your selfie",
                 "show me your photo",
                 "show me a picture",
+                "show me your picture",
+                "show your picture",
+                "show me your selfie",
+                "show your selfie",
+                "your selfie",
+                "ur selfie",
+                "cute selfie",
+                "take a selfie",
+                "send selfie",
+                "send pic",
+                "send pics",
+                "send photo",
+                "send your pic",
+                "send your photo",
+                "send me your pic",
+                "send me your photo",
             )
         )
         gif_requested = any(token in lower for token in ("gif", "reaction gif"))

@@ -93,14 +93,10 @@ async def evaluate_proactive_for_user(telegram_id: int, force: bool = False, tri
     if trigger_type != "NORMAL":
         time_context += f" | Trigger Context: {trigger_type}"
 
-    # Early-exit guard to save AI credits: If no memories, no chat history, and normal trigger, skip LLM call
-    if trigger_type == "NORMAL" and not memories and not chat_history and not force:
-        return {
-            "telegram_id": telegram_id,
-            "decision": "DONT_SEND",
-            "reason": "No pending memories or recent chat history to evaluate for proactive message.",
-            "message": None
-        }
+    # If no chat history exists, trigger FIRST_CONVERSATION to start the chat
+    effective_trigger = trigger_type
+    if not chat_history and trigger_type == "NORMAL":
+        effective_trigger = "FIRST_CONVERSATION"
 
     # Invoke Proactive Decision Engine
     result = await ai_engine.evaluate_proactive_decision(
@@ -111,7 +107,7 @@ async def evaluate_proactive_for_user(telegram_id: int, force: bool = False, tri
         user_nickname=user_nickname,
         ai_nickname=ai_nickname,
         time_of_day_context=time_context,
-        trigger_type=trigger_type,
+        trigger_type=effective_trigger,
         current_time=current_time
     )
 
@@ -121,10 +117,11 @@ async def evaluate_proactive_for_user(telegram_id: int, force: bool = False, tri
     return result
 
 
-async def execute_proactive_check(application, telegram_id: int = None, force: bool = False) -> list:
+async def execute_proactive_check(application=None, telegram_id: int = None, force: bool = False) -> list:
     """
     Runs the Proactive Decision Engine for target user or all registered users.
-    Dispatches messages on 'SEND' decision and logs evaluations.
+    Saves message directly to user chat history and logs evaluations.
+    Also forwards to Telegram bot if application instance is provided.
     """
     if telegram_id:
         users = [{"telegram_id": telegram_id}]
@@ -146,12 +143,9 @@ async def execute_proactive_check(application, telegram_id: int = None, force: b
                 message = None
                 reason = reason or "Malformed proactive decision; normalized to DONT_SEND."
 
-            if decision == "SEND" and message and application:
+            if decision == "SEND" and message:
                 try:
-                    # Send message to Telegram chat
-                    await application.bot.send_message(chat_id=u_id, text=message)
-                    
-                    # Store in chat history
+                    # Store in companion chat history so Android app sees it immediately
                     settings = database.get_user_settings(u_id)
                     p_key = settings.get("active_persona", "juhi") if settings else "juhi"
                     database.add_chat_message(u_id, p_key, "assistant", message)
@@ -163,8 +157,15 @@ async def execute_proactive_check(application, telegram_id: int = None, force: b
                     database.log_proactive_decision(u_id, "SEND", reason, message)
                     res["sent_status"] = "DELIVERED"
                     logger.info(f"[PROACTIVE ENGINE] SENT to user {u_id}: '{message}' (Reason: {reason})")
+
+                    # If Telegram bot application is provided, forward to Telegram
+                    if application and hasattr(application, "bot"):
+                        try:
+                            await application.bot.send_message(chat_id=u_id, text=message)
+                        except Exception as tg_err:
+                            logger.debug(f"[PROACTIVE ENGINE] Telegram forward skipped for user {u_id}: {tg_err}")
                 except Exception as e:
-                    logger.error(f"[PROACTIVE ENGINE] Failed sending to user {u_id}: {e}")
+                    logger.error(f"[PROACTIVE ENGINE] Failed delivering to user {u_id}: {e}")
                     res["sent_status"] = f"FAILED ({e})"
             else:
                 database.log_proactive_decision(u_id, "DONT_SEND", reason, None)
@@ -178,7 +179,7 @@ async def execute_proactive_check(application, telegram_id: int = None, force: b
     return results
 
 
-async def proactive_scheduler_loop(application, interval_minutes: int = 30):
+async def proactive_scheduler_loop(application=None, interval_minutes: int = 30):
     """Background periodic loop to run proactive decision engine checks."""
     logger.info(f"[PROACTIVE SCHEDULER] Started running every {interval_minutes} minutes.")
     while True:

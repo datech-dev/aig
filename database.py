@@ -1634,9 +1634,14 @@ def add_user_memory(telegram_id, memory_text, category="detail", confidence=1.0,
     """, (telegram_id,))
     existing = cursor.fetchall()
 
+    mem_clean_low = memory_clean.lower()
     for row in existing:
         ex_text = row["memory_text"].strip().lower()
-        if memory_clean.lower() in ex_text or ex_text in memory_clean.lower():
+        if mem_clean_low == ex_text:
+            conn.close()
+            return False
+        # Avoid rejecting longer elaborations; only match if lengths are within 8 chars
+        if (mem_clean_low in ex_text or ex_text in mem_clean_low) and abs(len(mem_clean_low) - len(ex_text)) < 8:
             conn.close()
             return False
 

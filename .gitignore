@@ -8,4 +8,5 @@ juhi_app/.dart_tool/
 *.csv
 assets/*.csv
 assets/*.apk
+assets/generated/
 test_girlfriend.db

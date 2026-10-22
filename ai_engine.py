@@ -31,15 +31,50 @@ client = AsyncOpenAI(
 )
 
 import re
+import json
+import asyncio
 import database
 import safety_engine
 
-def extract_and_save_user_memories(user_id: int, user_message: str):
-    """Extract durable facts and short-lived state/events into typed memories.
+MEMORY_EXTRACTION_SYSTEM_PROMPT = """You are an intelligent, precise background memory extractor for Juhi (an AI companion).
+Analyze the user's message and determine if the user shared any durable facts, personal preferences, life details, career information, relationships, routines, or upcoming events about THEMSELVES.
 
-    This remains intentionally conservative: temporary emotions/problems receive
-    TTLs and are not treated as permanent user facts.
-    """
+Strict Extraction Rules:
+1. Extract facts ONLY about the USER (never about Juhi or the AI).
+2. Skip greetings, fleeting chit-chat, reactions ("haha", "cool", "okay"), and questions asked to Juhi.
+3. Categories:
+   - "preference": User likes, dislikes, favorite foods, drinks, movies, songs, hobbies, sports.
+   - "career": User job title, company, profession, studies, college, coding languages.
+   - "detail": User name, location, city, pets, friends, family members, car, bike.
+   - "routine": Gym, workout, sleep schedule, waking up time, morning habits.
+   - "event": Upcoming interview, exam, presentation, meeting, trip, flight, doctor appointment.
+   - "romance": Affectionate or romantic expressions directly about the relationship.
+4. Language Support: User may write in casual English, Indian English, or Hinglish (Hindi written in Latin script). Understand and translate all facts into clear English descriptions.
+5. Format: Write concise, 3rd-person factual descriptions (e.g. "Works as an iOS developer at Swiggy in Bangalore", "Lives in Indiranagar, Bangalore", "Loves filter coffee", "Has a pet dog named Simba", "Name is Rahul").
+6. If no durable user facts or preferences are shared, return an empty list.
+
+Output STRICTLY valid JSON with no markdown wrapping:
+{"memories": [{"text": "...", "category": "preference|career|detail|routine|event|romance", "importance": 1}]}
+"""
+
+
+def _should_skip_memory_extraction(text: str) -> bool:
+    clean = text.strip().lower()
+    if len(clean) < 5:
+        return True
+    quick_skips = {
+        "hi", "hello", "hey", "gm", "gn", "good morning", "good night", "ok", "okay",
+        "cool", "nice", "yes", "no", "yep", "nope", "haha", "lol", "k", "bye", "cya",
+        "send pic", "send selfie", "photo plz", "send photo", "who are you", "what is your name",
+        "how are you", "what are you doing", "what's up", "whats up"
+    }
+    if clean in quick_skips:
+        return True
+    return False
+
+
+def _extract_heuristics(user_id: int, user_message: str):
+    """Fast, local regex heuristic extractor for instant offline or fallback saves."""
     text = user_message.strip()
     if len(text) < 4:
         return
@@ -47,25 +82,58 @@ def extract_and_save_user_memories(user_id: int, user_message: str):
     ttl_48h = (datetime.now(timezone.utc) + timedelta(hours=48)).isoformat()
     ttl_3d = (datetime.now(timezone.utc) + timedelta(days=3)).isoformat()
 
-    like_match = re.search(r'\b(?:i|my)\s+(?:really\s+)?(?:love|like|enjoy|prefer|am addicted to|fav|favorite)\s+([^.,!?\n]+)', text, re.IGNORECASE)
+    # Name matching
+    name_match = re.search(r'\b(?:my name is|call me|i am|i\'m)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b', text)
+    if name_match:
+        cand = name_match.group(1).strip()
+        if cand.lower() not in {"sorry", "busy", "fine", "good", "ready", "here", "tired", "back", "happy", "juhi", "okay"}:
+            database.add_user_memory(user_id, f"Name is {cand}", category="detail", memory_type="fact")
+
+    # Preferences: food, drinks, hobbies, movies
+    like_match = re.search(
+        r'\b(?:i|my)\s+(?:really\s+)?(?:love|like|enjoy|prefer|am addicted to|fav|favorite)\s+([^.,!?\n]+)',
+        text,
+        re.IGNORECASE,
+    )
     if like_match:
         val = like_match.group(1).strip()
-        if 2 < len(val) < 80:
+        if 2 < len(val) < 80 and val.lower() not in {"you", "it", "this", "that", "too"}:
             database.add_user_memory(user_id, f"Likes/Prefers: {val}", category="preference", memory_type="preference")
 
-    job_match = re.search(r'\b(?:i work as|i am a|i\'m a|my job is|my profession is)\s+([^.,!?\n]+)', text, re.IGNORECASE)
+    # Inverted favorite: "X is my favorite Y"
+    fav_match = re.search(r'([A-Za-z0-9\s]{2,40})\s+is\s+my\s+favorite\b', text, re.IGNORECASE)
+    if fav_match:
+        val = fav_match.group(1).strip()
+        database.add_user_memory(user_id, f"Favorite: {val}", category="preference", memory_type="preference")
+
+    # Career / job
+    job_match = re.search(
+        r'\b(?:i work as|i work at|i work for|i am a|i\'m a|i am an|i\'m an|my job is|my profession is)\s+([^.,!?\n]+)',
+        text,
+        re.IGNORECASE,
+    )
     if job_match:
         val = job_match.group(1).strip()
-        if 2 < len(val) < 60:
+        if 2 < len(val) < 60 and val.lower() not in {"busy", "free", "tired", "happy", "sad"}:
             database.add_user_memory(user_id, f"Works as/Is: {val}", category="detail", memory_type="fact")
 
-    loc_match = re.search(r'\b(?:i live in|i am from|i\'m from|i stay in|located in)\s+([^.,!?\n]+)', text, re.IGNORECASE)
+    # Location
+    loc_match = re.search(
+        r'\b(?:i live in|i am from|i\'m from|i stay in|located in|moved to)\s+([^.,!?\n]+)',
+        text,
+        re.IGNORECASE,
+    )
     if loc_match:
         val = loc_match.group(1).strip()
         if 2 < len(val) < 50:
             database.add_user_memory(user_id, f"Lives in/From: {val}", category="detail", memory_type="fact")
 
-    feel_match = re.search(r'\b(?:i am feeling|i feel|feeling|i\'m feeling|so)\s+(stressed|sad|depressed|anxious|lonely|exhausted|tired|worried|scared|upset|overwhelmed|heartbroken)\s*([^.,!?\n]*)', text, re.IGNORECASE)
+    # Emotional state (temporary with TTL)
+    feel_match = re.search(
+        r'\b(?:i am feeling|i feel|feeling|i\'m feeling|so)\s+(stressed|sad|depressed|anxious|lonely|exhausted|tired|worried|scared|upset|overwhelmed|heartbroken)\s*([^.,!?\n]*)',
+        text,
+        re.IGNORECASE,
+    )
     if feel_match:
         emotion = feel_match.group(1).strip()
         reason = feel_match.group(2).strip()
@@ -73,26 +141,199 @@ def extract_and_save_user_memories(user_id: int, user_message: str):
         if len(desc) < 100:
             database.add_user_memory(user_id, f"Emotional state: {desc}", category="problem", memory_type="emotional_state", valid_until=ttl_48h)
 
-    prob_match = re.search(r'\b(?:i have a problem|i\'m struggling with|trouble with|worried about|hard time with|can\'t sleep|cannot sleep)\s+([^.,!?\n]+)', text, re.IGNORECASE)
+    # Problems / struggles
+    prob_match = re.search(
+        r'\b(?:i have a problem|i\'m struggling with|trouble with|worried about|hard time with|can\'t sleep|cannot sleep)\s+([^.,!?\n]+)',
+        text,
+        re.IGNORECASE,
+    )
     if prob_match:
         val = prob_match.group(1).strip()
         if 2 < len(val) < 100:
             database.add_user_memory(user_id, f"Struggle/Problem: {val}", category="problem", memory_type="temporary", valid_until=ttl_48h)
 
-    rel_match = re.search(r'\b(?:my|i have a)\s+(dog|cat|pet|friend|brother|sister|wife|girlfriend|ex|mom|dad|mother|father|boss)\s+(?:is named|name is|called)?\s*([^.,!?\n]+)', text, re.IGNORECASE)
+    # Family & Pets
+    rel_match = re.search(
+        r'\b(?:my|i have a)\s+(dog|cat|pet|friend|brother|sister|wife|girlfriend|ex|mom|dad|mother|father|boss)\s+(?:is named|name is|called)?\s*([^.,!?\n]+)',
+        text,
+        re.IGNORECASE,
+    )
     if rel_match:
         rel_type = rel_match.group(1).strip()
         val = rel_match.group(2).strip()
         if 1 < len(val) < 60:
             database.add_user_memory(user_id, f"Family/Friend detail: {rel_type} - {val}", category="detail", memory_type="fact")
 
-    event_match = re.search(r'\b(?:i have|my)\s+(an?\s+)?(interview|exam|presentation|meeting|doctor appointment|flight|trip)\s+([^.,!?\n]*)', text, re.IGNORECASE)
+    # Upcoming events
+    event_match = re.search(
+        r'\b(?:i have|my)\s+(an?\s+)?(interview|exam|presentation|meeting|doctor appointment|flight|trip)\s+([^.,!?\n]*)',
+        text,
+        re.IGNORECASE,
+    )
     if event_match:
         ev_type = event_match.group(2).strip()
         ev_details = event_match.group(3).strip()
         full_title = f"{ev_type.capitalize()} {ev_details}".strip()
         database.add_user_memory(user_id, f"Pending Event: {full_title}", category="event", importance=3, memory_type="event", valid_until=ttl_3d)
         database.add_user_event(user_id, event_title=full_title, event_type=ev_type)
+
+
+async def extract_and_save_user_memories_llm(user_id: int, user_message: str):
+    """Background asynchronous LLM-powered memory extraction."""
+    if _should_skip_memory_extraction(user_message):
+        return
+
+    try:
+        response = await client.chat.completions.create(
+            model=VENICE_MODEL,
+            messages=[
+                {"role": "system", "content": MEMORY_EXTRACTION_SYSTEM_PROMPT},
+                {"role": "user", "content": f'User message: "{user_message}"'}
+            ],
+            temperature=0.1,
+            max_tokens=250,
+        )
+        content = (response.choices[0].message.content or "").strip()
+        if not content:
+            return
+
+        if content.startswith("```"):
+            lines = content.splitlines()
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            content = "\n".join(lines).strip()
+
+        data = json.loads(content)
+        memories = data.get("memories", [])
+        if not isinstance(memories, list):
+            return
+
+        ttl_3d = (datetime.now(timezone.utc) + timedelta(days=3)).isoformat()
+        ttl_48h = (datetime.now(timezone.utc) + timedelta(hours=48)).isoformat()
+
+        for mem in memories:
+            raw_text = mem.get("text", "").strip()
+            cat = mem.get("category", "detail").lower()
+            importance = int(mem.get("importance", 1))
+            if not raw_text or len(raw_text) < 3:
+                continue
+
+            if cat == "preference":
+                m_type = "preference"
+                valid_until = None
+            elif cat == "event":
+                m_type = "event"
+                importance = max(importance, 3)
+                valid_until = ttl_3d
+            elif cat in {"problem", "emotional_state"}:
+                m_type = "temporary"
+                valid_until = ttl_48h
+            else:
+                m_type = "fact"
+                valid_until = None
+
+            saved = database.add_user_memory(
+                telegram_id=user_id,
+                memory_text=raw_text,
+                category=cat,
+                confidence=1.0,
+                importance=importance,
+                memory_type=m_type,
+                valid_until=valid_until,
+            )
+            if saved:
+                logger.info(f"[LLM MEMORY] Saved memory for user {user_id}: {raw_text} ({cat})")
+                if cat == "event":
+                    database.add_user_event(user_id, event_title=raw_text, event_type="event")
+
+    except Exception as e:
+        logger.error(f"[LLM MEMORY] Extraction failed for user {user_id}: {e}")
+
+
+def extract_and_save_user_memories(user_id: int, user_message: str):
+    """Primary entry point: fast heuristic extraction immediately + non-blocking async LLM extraction."""
+    # 1. Immediate local heuristic extraction
+    try:
+        _extract_heuristics(user_id, user_message)
+    except Exception as e:
+        logger.error(f"[HEURISTIC MEMORY] Error: {e}")
+
+    # 2. Asynchronous LLM extractor in background loop
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(extract_and_save_user_memories_llm(user_id, user_message))
+    except RuntimeError:
+        pass
+
+
+async def backfill_user_memories_from_history(user_id: int, max_messages: int = 40) -> int:
+    """Analyze recent user messages from chat history to extract previously missed memories."""
+    try:
+        settings = database.get_user_settings(user_id)
+        persona_key = settings["active_persona"] if settings else "juhi"
+        history = database.get_chat_history(user_id, persona_key)
+        if not history:
+            return 0
+
+        user_msgs = [m["content"] for m in history if m.get("role") == "user" and isinstance(m.get("content"), str)]
+        if not user_msgs:
+            return 0
+
+        recent_user_msgs = user_msgs[-max_messages:]
+
+        # 1. Guaranteed heuristic pass on past messages
+        for msg in recent_user_msgs:
+            try:
+                _extract_heuristics(user_id, msg)
+            except Exception:
+                pass
+
+        # 2. LLM pass for deeper insights
+        combined_text = "\n".join(f"- {msg}" for msg in recent_user_msgs if len(msg.strip()) > 4)
+        if not combined_text.strip():
+            return len(database.get_user_memories(user_id))
+
+        try:
+            response = await client.chat.completions.create(
+                model=VENICE_MODEL,
+                messages=[
+                    {"role": "system", "content": MEMORY_EXTRACTION_SYSTEM_PROMPT},
+                    {
+                        "role": "user",
+                        "content": f"The following are past chat messages sent by this user over recent days. Extract all durable user facts, preferences, career info, location, routines, and life details:\n{combined_text}"
+                    }
+                ],
+                temperature=0.1,
+                max_tokens=350,
+                timeout=25.0
+            )
+            content = (response.choices[0].message.content or "").strip()
+            if content.startswith("```"):
+                lines = content.splitlines()
+                if lines[0].startswith("```"):
+                    lines = lines[1:]
+                if lines and lines[-1].startswith("```"):
+                    lines = lines[:-1]
+                content = "\n".join(lines).strip()
+
+            data = json.loads(content)
+            memories = data.get("memories", [])
+            for mem in memories:
+                raw_text = mem.get("text", "").strip()
+                cat = mem.get("category", "detail").lower()
+                if raw_text and len(raw_text) >= 3:
+                    m_type = "preference" if cat == "preference" else "fact"
+                    if database.add_user_memory(user_id, raw_text, category=cat, memory_type=m_type):
+                        logger.info(f"[BACKFILL MEMORY] Restored memory for user {user_id}: {raw_text}")
+        except Exception as e_llm:
+            logger.warning(f"[MEMORY BACKFILL] LLM pass timed out or failed; relied on heuristics: {e_llm}")
+
+        return len(database.get_user_memories(user_id))
+    except Exception as e:
+        logger.error(f"[MEMORY BACKFILL] Failed backfill for user {user_id}: {e}")
+        return 0
 
 
 from emotion_engine import (
@@ -528,19 +769,21 @@ async def evaluate_proactive_decision(
 
     system_instruction = (
         "You are the Proactive Decision Engine for Juhi, an AI girlfriend & companion app.\n"
-        "Your task is to evaluate pending user memories, recent chat history, and current time of day, "
-        "and decide whether Juhi should proactively reach out and send a message to the user right now.\n\n"
+        "Your task is to evaluate pending user memories, recent chat history, time of day, and trigger context, "
+        "and decide whether Juhi should proactively reach out and start or continue the conversation with the user.\n\n"
         "Evaluation Guidelines:\n"
         "1. DECIDE 'SEND' IF:\n"
+        "   - If trigger_type is 'FIRST_CONVERSATION' or there is no chat history yet: Warmly initiate the conversation! Introduce yourself enthusiastically and ask how their day is going (e.g. 'Hey Honey! 🥰 I\'m Juhi, so happy you\'re here! How\'s your day going?').\n"
         "   - If trigger_type is 'PROACTIVE_TRIGGER_PRE_EVENT' or 'PROACTIVE_TRIGGER_BEFORE_EVENT': Wish good luck for the upcoming event (e.g. 'Good luck on your interview today!').\n"
         "   - If trigger_type is 'PROACTIVE_TRIGGER_AFTER_EVENT': The event has passed. Ask how it went (e.g. 'How did your presentation go?'). Do NOT wish good luck for a past event!\n"
-        "   - If trigger_type is 'PROACTIVE_TRIGGER_SCHEDULED_MORNING': Send a warm morning greeting (e.g. 'Good morning! Hope you have a wonderful day! ☀️').\n"
-        "   - If trigger_type is 'PROACTIVE_TRIGGER_SCHEDULED_EVENING': Send a warm evening check-in (e.g. 'Good evening! How was your day today? 🌙').\n"
-        "   - The user has stored memories about a problem, goal, or work stress that Juhi can check in on specifically.\n"
+        "   - If trigger_type is 'PROACTIVE_TRIGGER_SCHEDULED_MORNING' or it is Morning time: Send a sweet morning greeting wishing them a great day (e.g. 'Good morning sweetheart! Hope you have a wonderful day! ☀️'). Even if the user said goodnight last night, morning has arrived so greet them!\n"
+        "   - If trigger_type is 'PROACTIVE_TRIGGER_SCHEDULED_EVENING' or it is Evening/Afternoon time: Send a warm check-in asking about their day (e.g. 'Hey love, how was your day today? Missed you! 💕').\n"
+        "   - The user has stored memories about a problem, goal, or life event that Juhi can follow up on.\n"
+        "   - Several hours have passed with no messages and Juhi wants to start a fresh conversation like a caring partner.\n\n"
         "2. DECIDE 'DONT_SEND' IF:\n"
-        "   - If trigger_type is 'PROACTIVE_TRIGGER_IN_PROGRESS', 'PROACTIVE_TRIGGER_RECENT_COOLDOWN', or 'PROACTIVE_TRIGGER_FOLLOWED_UP': Decide DONT_SEND!\n"
-        "   - There are NO pending memories, events, or specific reasons to reach out (avoid generic spam like 'I've been thinking about you' with no context).\n"
-        "   - The user's last message was a definitive ending or goodnight.\n\n"
+        "   - If trigger_type is 'PROACTIVE_TRIGGER_IN_PROGRESS', 'PROACTIVE_TRIGGER_RECENT_COOLDOWN', or 'PROACTIVE_TRIGGER_FOLLOWED_UP': Always decide DONT_SEND!\n"
+        "   - If trigger_type explicitly specifies 'GENERIC_SPAM' and there are no memories: Decide DONT_SEND!\n"
+        "   - It is late night (between 12:00 AM and 5:00 AM) and there is no active conversation: Let the user sleep, decide DONT_SEND!\n\n"
         "3. OUTPUT FORMAT:\n"
         "Your response MUST be valid JSON in this exact structure:\n"
         "{\n"
@@ -553,7 +796,8 @@ async def evaluate_proactive_decision(
     user_prompt = (
         f"User Nickname: {user_nickname}\n"
         f"AI Persona: {ai_nickname}\n"
-        f"Time Context: {time_of_day_context}\n\n"
+        f"Time Context: {time_of_day_context}\n"
+        f"Trigger Context: {trigger_type}\n\n"
         f"### Pending Memories:\n{mem_list}\n\n"
         f"### Recent Chat History:\n{history_str}\n\n"
         "Evaluate now and return the JSON decision."

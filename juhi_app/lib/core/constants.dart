@@ -16,6 +16,7 @@ class AppConstants {
   static const String apiConfig = '/api/config';
   static const String apiDeviceToken = '/api/device-token';
   static const String apiTestNotification = '/api/notifications/test';
+  static const String apiProactiveCheck = '/api/proactive/check';
   static const String apiRelationshipLevel = '/api/relationship/level';
 
   // ── Storage Keys ──────────────────────────────────────────────────────────

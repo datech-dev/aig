@@ -196,6 +196,17 @@ class ApiService {
     );
     return response.data as Map<String, dynamic>;
   }
+
+  Future<Map<String, dynamic>> checkProactive(String userId, {bool force = false}) async {
+    final response = await _dio.post(
+      AppConstants.apiProactiveCheck,
+      data: {
+        'user_id': userId,
+        'force': force,
+      },
+    );
+    return response.data as Map<String, dynamic>;
+  }
 }
 
 // Singleton instance

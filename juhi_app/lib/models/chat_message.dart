@@ -7,6 +7,7 @@ class ChatMessage {
   final DateTime timestamp;
   final bool hasImage;
   final String? imagePrompt;
+  final String? rawImageUrl;
   final bool hasGif;
   final String? gifName;
   final bool isLoading;
@@ -18,6 +19,7 @@ class ChatMessage {
     required this.timestamp,
     this.hasImage = false,
     this.imagePrompt,
+    this.rawImageUrl,
     this.hasGif = false,
     this.gifName,
     this.isLoading = false,
@@ -38,6 +40,15 @@ class ChatMessage {
     return '${AppConstants.baseUrl}/gifs/$clean.gif';
   }
 
+  String? get imageUrl {
+    if (!hasImage || rawImageUrl == null || rawImageUrl!.trim().isEmpty) return null;
+    if (rawImageUrl!.startsWith('http://') || rawImageUrl!.startsWith('https://')) {
+      return rawImageUrl;
+    }
+    final path = rawImageUrl!.startsWith('/') ? rawImageUrl! : '/$rawImageUrl';
+    return '${AppConstants.baseUrl}$path';
+  }
+
   factory ChatMessage.fromJson(Map<String, dynamic> json) {
     return ChatMessage(
       role: json['role'] ?? 'user',
@@ -47,6 +58,7 @@ class ChatMessage {
           : DateTime.now(),
       hasImage: json['has_image'] ?? false,
       imagePrompt: json['image_prompt'],
+      rawImageUrl: json['image_url'],
       hasGif: json['has_gif'] ?? false,
       gifName: json['gif_name'],
       isPaywall: json['is_paywall'] ?? false,
@@ -69,6 +81,7 @@ class ChatMessage {
       timestamp: DateTime.now(),
       hasImage: json['has_image'] ?? false,
       imagePrompt: json['image_prompt'],
+      rawImageUrl: json['image_url'],
       hasGif: json['has_gif'] ?? false,
       gifName: json['gif_name'],
       isPaywall: json['is_paywall'] ?? false,
