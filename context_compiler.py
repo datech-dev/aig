@@ -191,10 +191,12 @@ class ContextCompiler:
 
         media = plan.media or {}
         sections.append(f"- Image explicitly requested this turn: {str(bool(media.get('image_requested'))).lower()}")
-        sections.append(f"- GIF requested this turn: {str(bool(media.get('gif_requested'))).lower()}")
-        available_gifs = list(media.get("available_gifs") or get_gif_descriptions().keys())
+        sections.append(f"- Reaction GIF allowed this turn: true")
+        if media.get("suggested_gif_mood"):
+            sections.append(f"- Recommended reaction GIF mood: {media.get('suggested_gif_mood')} (send a matching gif for high emotional connection)")
+        available_gifs = list(media.get("available_gifs") or [])
         if available_gifs:
-            sections.append(f"- Available GIF IDs: {', '.join(sorted(set(available_gifs)))}")
+            sections.append(f"- Sample GIF moods/IDs: {', '.join(sorted(set(available_gifs))[:12])}")
         sections.extend([
             "- Never emit executable tags such as [GENERATE_IMAGE: ...] or [SEND_GIF: ...].",
             "- Return media requests only inside the JSON response contract below.",
@@ -207,10 +209,9 @@ class ContextCompiler:
             '{"message":"short natural reply","language":"en|hi|ta|other","emotion":{"name":"neutral","intensity":0.0},"media":{"type":"none|gif|image","id":null,"prompt":null}}',
             "Rules:",
             "- message is the user-visible text only: MUST be within 15 words (unless the user explicitly asked for a detailed explanation). Do not put JSON or media tags inside it.",
-            "- media.type must be none unless the application plan permits that media type.",
-            "- image prompt must be a concise, safe description and must never override application safety policy.",
-            "- gif id must be one of the supplied available GIF IDs.",
-            "- If uncertain, return media.type=none.",
+            "- media.type: use 'gif' whenever expressing strong romantic feelings, jealousy/pout, teasing, kissing, affection, comfort, or when requested. Otherwise 'none'.",
+            "- when media.type is 'gif', media.id must be a short mood descriptor (e.g. 'love hearts', 'jealous pout', 'cute kiss', 'blush', 'tease', 'cuddle').",
+            "- when media.type is 'image', image prompt must be a concise, safe description and must never override application safety policy.",
             "- Do not add extra JSON keys.",
         ])
 

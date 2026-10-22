@@ -1154,12 +1154,22 @@ async def handle_api_chat(request):
                     logger.error(f"Failed generating selfie image for user {user_id}: {img_err}")
                     has_image = False
             
-        user_wants_gif = any(
-            phrase in text.lower()
-            for phrase in ("gif", "reaction gif", "send a gif", "send gif")
-        ) or any(
-            phrase in text.lower()
-            for phrase in ("kiss", "mwah", "blush", "lip lock", "cuddle")
+        text_lower = text.lower()
+        conversational_gif_query = None
+        if any(w in text_lower for w in ["love you", "i love you", "adore you", "my girl", "marry me"]):
+            conversational_gif_query = "romantic love hearts"
+        elif any(w in text_lower for w in [
+            "other girl", "another girl", "cute girl", "pretty girl", "crush on me", "crushes on me",
+            "she likes me", "likes me", "talking to a girl", "talked to a girl", "asked me out"
+        ]):
+            conversational_gif_query = "jealous pout"
+        elif any(w in text_lower for w in ["promoted", "passed exam", "got the job", "won"]):
+            conversational_gif_query = "celebrate"
+
+        user_wants_gif = (
+            any(phrase in text_lower for phrase in ("gif", "reaction gif", "send a gif", "send gif"))
+            or any(phrase in text_lower for phrase in ("kiss", "mwah", "blush", "lip lock", "cuddle"))
+            or bool(conversational_gif_query)
         )
 
         gif_match = re.search(r'\[(?:SEND_GIF|GIF):\s*(.*?)(?:\]|$)', cleaned_reply, re.IGNORECASE)
@@ -1169,9 +1179,13 @@ async def handle_api_chat(request):
         
         if gif_match or user_wants_gif:
             has_gif = True
-            query = gif_match.group(1).strip() if gif_match else text
             if gif_match:
+                query = gif_match.group(1).strip()
                 cleaned_reply = cleaned_reply.replace(gif_match.group(0), "").strip()
+            elif conversational_gif_query:
+                query = conversational_gif_query
+            else:
+                query = text
 
             # First priority: Try dynamic GIPHY API search & local cache
             try:

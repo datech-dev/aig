@@ -158,13 +158,44 @@ class ResponsePlanner:
                 "send me your photo",
             )
         )
-        gif_requested = any(token in lower for token in ("gif", "reaction gif", "send a gif", "send gif")) or any(
-            phrase in lower for phrase in ("kiss", "mwah", "blush", "lip lock", "cuddle")
-        )
+        
+        suggested_mood = None
+        # Conversational emotion triggers for spontaneous reaction GIFs
+        if any(w in lower for w in ["love you", "i love you", "adore you", "marry me", "you are mine", "my girl"]):
+            gif_requested = True
+            suggested_mood = "love hearts"
+        elif any(w in lower for w in [
+            "other girl", "another girl", "cute girl", "pretty girl", "crush on me", "crushes on me",
+            "she likes me", "likes me", "talking to a girl", "talked to a girl", "asked me out"
+        ]):
+            gif_requested = True
+            suggested_mood = "jealous pout"
+        elif any(w in lower for w in ["kiss", "mwah", "lip lock"]):
+            gif_requested = True
+            suggested_mood = "cute kiss"
+        elif any(w in lower for w in ["blush", "blushing", "making me blush"]):
+            gif_requested = True
+            suggested_mood = "blush"
+        elif any(w in lower for w in ["cuddle", "hug me", "hold me", "snuggle"]):
+            gif_requested = True
+            suggested_mood = "cuddle"
+        elif any(w in lower for w in ["promoted", "won", "passed exam", "got the job", "celebrate", "awesome news"]):
+            gif_requested = True
+            suggested_mood = "celebrate"
+        elif any(w in lower for w in ["sad", "depressed", "rough day", "hard day", "feeling down", "crying"]):
+            gif_requested = True
+            suggested_mood = "comfort"
+        elif any(w in lower for w in ["silly", "idiot", "loser", "tease", "noob"]):
+            gif_requested = True
+            suggested_mood = "tease"
+        else:
+            gif_requested = any(token in lower for token in ("gif", "reaction gif", "send a gif", "send gif"))
+
         return {
             "image_requested": image_requested,
             "gif_allowed": True,
             "gif_requested": gif_requested,
+            "suggested_gif_mood": suggested_mood,
             "available_gifs": list(available_gifs),
         }
 

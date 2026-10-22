@@ -476,7 +476,12 @@ async def generate_response(
         except Exception as err:
             logger.exception("Emotion pipeline failed; continuing with neutral state: %s", err)
 
-    available_gifs = list(get_gif_descriptions().keys())
+    mood_tags = [
+        "love", "love hearts", "kiss", "cute kiss", "blush", "cuddle", "hug",
+        "jealous", "pout", "jealous pout", "angry", "side eye", "tease", "playful tease",
+        "laugh", "happy", "celebrate", "dance", "miss you", "comfort", "wink", "coffee"
+    ]
+    available_gifs = list(set(list(get_gif_descriptions().keys()) + mood_tags))
     response_plan = response_planner.plan(
         relationship=relationship,
         emotion=emotion_context,
@@ -514,8 +519,8 @@ async def generate_response(
         "detailed", "in depth", "advice on", "help me understand", "step by step"
     ]) or len(user_message.split()) > 40
     media_in_plan = response_plan.media or {}
-    has_media_intent = bool(media_in_plan.get("image_requested") or media_in_plan.get("gif_requested"))
-    turn_max_tokens = 250 if (needs_long_reply or has_media_intent) else 140
+    has_media_intent = bool(media_in_plan.get("image_requested") or media_in_plan.get("gif_requested") or media_in_plan.get("suggested_gif_mood"))
+    turn_max_tokens = 250 if (needs_long_reply or has_media_intent) else 180
 
     try:
         response = await client.chat.completions.create(

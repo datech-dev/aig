@@ -94,6 +94,40 @@ MOOD_MAPPINGS = {
         "happy celebration dance cute",
         "silly happy dance cute",
     ],
+    "jealous": [
+        "cute anime pout",
+        "jealous anime girl",
+        "pouting angry cute",
+        "side eye girl cute",
+        "hmph cute anime",
+    ],
+    "pout": [
+        "cute anime pout",
+        "pouting angry cute",
+        "hmph cute anime",
+        "side eye girl cute",
+    ],
+    "angry": [
+        "cute angry anime girl",
+        "pout angry cute",
+        "hmph cute anime",
+        "cute mad funny",
+    ],
+    "side eye": [
+        "side eye girl cute",
+        "bombastic side eye cute",
+        "suspicious anime girl",
+    ],
+    "celebrate": [
+        "happy celebration dance cute",
+        "yay celebration cute anime",
+        "confetti celebrate cute",
+    ],
+    "comfort": [
+        "warm gentle hug comfort",
+        "comforting pat head cute",
+        "there there hug love",
+    ],
 }
 
 # Cache of recently served GIPHY IDs per user to avoid repeats
