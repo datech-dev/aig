@@ -1098,7 +1098,7 @@ async def handle_api_chat(request):
         
         import os, time, shutil, safety_engine
 
-        image_match = re.search(r'\[GENERATE_IMAGE:\s*(.*?)(?:\]|$)', reply, re.IGNORECASE | re.DOTALL)
+        image_match = re.search(r'\[(?:GENERATE_IMAGE|IMAGE):\s*(.*?)(?:\]|$)', reply, re.IGNORECASE | re.DOTALL)
         cleaned_reply = reply
         has_image = False
         image_prompt = ""
@@ -1152,7 +1152,7 @@ async def handle_api_chat(request):
             for phrase in ("kiss", "mwah", "blush", "lip lock", "cuddle")
         )
 
-        gif_match = re.search(r'\[SEND_GIF:\s*(.*?)(?:\]|$)', cleaned_reply, re.IGNORECASE)
+        gif_match = re.search(r'\[(?:SEND_GIF|GIF):\s*(.*?)(?:\]|$)', cleaned_reply, re.IGNORECASE)
         has_gif = False
         gif_name = None
         
