@@ -9,6 +9,8 @@ ADMIN_TELEGRAM_ID = os.getenv("ADMIN_TELEGRAM_ID")
 VENICE_API_KEY = os.getenv("VENICE_API_KEY")
 VENICE_MODEL = os.getenv("VENICE_MODEL", "aion-labs-aion-3-5-mini")
 VENICE_IMAGE_MODEL = os.getenv("VENICE_IMAGE_MODEL", "fluently-xl")
+GIPHY_API_KEY = os.getenv("GIPHY_API_KEY", "TWPWLly8Lf8NmpjQaX3PbFreGjp9zgPJ")
+
 
 # Payment Gateway Credentials (Razorpay & Instamojo)
 PAYMENT_GATEWAY = os.getenv("PAYMENT_GATEWAY", "razorpay")

@@ -163,7 +163,7 @@ class ResponsePlanner:
         )
         return {
             "image_requested": image_requested,
-            "gif_allowed": bool(available_gifs),
+            "gif_allowed": True,
             "gif_requested": gif_requested,
             "available_gifs": list(available_gifs),
         }

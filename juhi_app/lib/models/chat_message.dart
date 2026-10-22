@@ -10,6 +10,7 @@ class ChatMessage {
   final String? rawImageUrl;
   final bool hasGif;
   final String? gifName;
+  final String? rawGifUrl;
   final bool isLoading;
   final bool isPaywall;
 
@@ -22,6 +23,7 @@ class ChatMessage {
     this.rawImageUrl,
     this.hasGif = false,
     this.gifName,
+    this.rawGifUrl,
     this.isLoading = false,
     this.isPaywall = false,
   });
@@ -35,7 +37,15 @@ class ChatMessage {
   }
 
   String? get gifUrl {
-    if (!hasGif || gifName == null || gifName!.trim().isEmpty) return null;
+    if (!hasGif) return null;
+    if (rawGifUrl != null && rawGifUrl!.trim().isNotEmpty) {
+      if (rawGifUrl!.startsWith('http://') || rawGifUrl!.startsWith('https://')) {
+        return rawGifUrl;
+      }
+      final path = rawGifUrl!.startsWith('/') ? rawGifUrl! : '/$rawGifUrl';
+      return '${AppConstants.baseUrl}$path';
+    }
+    if (gifName == null || gifName!.trim().isEmpty) return null;
     final clean = Uri.encodeComponent(gifName!.trim().toLowerCase().replaceAll('.gif', ''));
     return '${AppConstants.baseUrl}/gifs/$clean.gif';
   }
@@ -61,6 +71,7 @@ class ChatMessage {
       rawImageUrl: json['image_url'],
       hasGif: json['has_gif'] ?? false,
       gifName: json['gif_name'],
+      rawGifUrl: json['gif_url'],
       isPaywall: json['is_paywall'] ?? false,
     );
   }
@@ -84,6 +95,7 @@ class ChatMessage {
       rawImageUrl: json['image_url'],
       hasGif: json['has_gif'] ?? false,
       gifName: json['gif_name'],
+      rawGifUrl: json['gif_url'],
       isPaywall: json['is_paywall'] ?? false,
     );
   }

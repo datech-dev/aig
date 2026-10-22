@@ -1011,11 +1011,21 @@ async def handle_api_history(request):
                 img_url = img_match.group(1).strip()
                 content = content.replace(img_match.group(0), "").strip()
 
+            gif_match = re.search(r'\[GIF:\s*(.*?)(?:\]|$)', content)
+            has_gif = False
+            gif_name = None
+            if gif_match:
+                has_gif = True
+                gif_name = gif_match.group(1).strip()
+                content = content.replace(gif_match.group(0), "").strip()
+
             cleaned_history.append({
                 "role": msg["role"],
                 "content": content,
                 "has_image": has_img,
                 "image_url": img_url,
+                "has_gif": has_gif,
+                "gif_name": gif_name,
                 "timestamp": msg.get("timestamp", "")
             })
             
@@ -1155,14 +1165,29 @@ async def handle_api_chat(request):
         gif_match = re.search(r'\[(?:SEND_GIF|GIF):\s*(.*?)(?:\]|$)', cleaned_reply, re.IGNORECASE)
         has_gif = False
         gif_name = None
+        gif_url = None
         
         if gif_match or user_wants_gif:
             has_gif = True
             query = gif_match.group(1).strip() if gif_match else text
             if gif_match:
                 cleaned_reply = cleaned_reply.replace(gif_match.group(0), "").strip()
-            from bot import choose_gif
-            gif_name = choose_gif(query, user_id, persona_key)
+
+            # First priority: Try dynamic GIPHY API search & local cache
+            try:
+                import giphy_service
+                giphy_res = giphy_service.search_and_fetch_gif(query, user_id=user_id)
+                if giphy_res:
+                    gif_name = giphy_res.get("gif_name")
+                    gif_url = giphy_res.get("gif_url")
+            except Exception as g_err:
+                logger.warning(f"GIPHY search failed: {g_err}")
+
+            # Second priority fallback: Curated local GIFs
+            if not gif_name:
+                from bot import choose_gif
+                gif_name = choose_gif(query, user_id, persona_key)
+
             if not gif_name:
                 has_gif = False
             else:
@@ -1177,8 +1202,13 @@ async def handle_api_chat(request):
         else:
             remaining = 999
             
-        # Log to DB (include image tag so history displays photo upon re-opening)
-        msg_to_save = f"{cleaned_reply}\n[IMAGE: {image_url}]" if (has_image and image_url) else cleaned_reply
+        # Log to DB (include image/gif tags so history displays media upon re-opening)
+        msg_to_save = cleaned_reply
+        if has_image and image_url:
+            msg_to_save = f"{msg_to_save}\n[IMAGE: {image_url}]"
+        if has_gif and gif_name:
+            msg_to_save = f"{msg_to_save}\n[GIF: {gif_name}]"
+
         database.add_chat_message(user_id, persona_key, "user", text)
         database.add_chat_message(user_id, persona_key, "assistant", msg_to_save)
         
@@ -1201,6 +1231,7 @@ async def handle_api_chat(request):
             "image_url": image_url,
             "has_gif": has_gif,
             "gif_name": gif_name,
+            "gif_url": gif_url,
             "remaining_free": remaining,
             "leveled_up": leveled_up,
             "new_level": new_level,
