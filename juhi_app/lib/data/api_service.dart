@@ -74,6 +74,14 @@ class ApiService {
     return response.data as Map<String, dynamic>;
   }
 
+  Future<Map<String, dynamic>> clearChatHistory(String userId) async {
+    final response = await _dio.post(
+      AppConstants.apiHistoryClear,
+      data: {'user_id': userId, 'action': 'clear'},
+    );
+    return response.data as Map<String, dynamic>;
+  }
+
   // ── Send Message ──────────────────────────────────────────────────────────
   Future<Map<String, dynamic>> sendMessage({
     required String userId,

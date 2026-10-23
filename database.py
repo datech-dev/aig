@@ -622,16 +622,24 @@ def get_chat_history(telegram_id, persona_key, limit=20):
     return history
 
 
-def clear_chat_history(telegram_id, persona_key):
-    """Resets conversation logs for a specific companion."""
+def clear_chat_history(telegram_id, persona_key=None):
+    """Resets conversation logs for a specific companion (or all companion chats if persona_key is None).
+    Leaves user_memories completely intact so memory history is never deleted."""
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("""
-        DELETE FROM chat_history
-        WHERE telegram_id = ? AND persona_key = ?
-    """, (telegram_id, persona_key))
+    if persona_key:
+        cursor.execute("""
+            DELETE FROM chat_history
+            WHERE telegram_id = ? AND persona_key = ?
+        """, (telegram_id, persona_key))
+    else:
+        cursor.execute("""
+            DELETE FROM chat_history
+            WHERE telegram_id = ?
+        """, (telegram_id,))
     conn.commit()
     conn.close()
+    return True
 
 # Initialize database schema upon import
 init_db()

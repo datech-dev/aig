@@ -1035,6 +1035,48 @@ async def handle_api_history(request):
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
 
+async def handle_api_clear_history(request):
+    """API endpoint to clear chat history for the mobile app without deleting memories."""
+    try:
+        user_id = None
+        persona_key = None
+        if request.method == "POST":
+            data = await request.json()
+            user_id = data.get("user_id")
+            persona_key = data.get("persona_key")
+        elif request.method in ("DELETE", "GET"):
+            user_id = request.query.get("user_id")
+            persona_key = request.query.get("persona_key")
+            
+        if not user_id:
+            return web.json_response({"success": False, "error": "Missing user_id parameter"}, status=400)
+            
+        user_id = int(user_id)
+        if not persona_key:
+            settings = database.get_user_settings(user_id)
+            persona_key = settings["active_persona"] if settings else "juhi"
+            
+        # Clear chat history only - user_memories is completely preserved
+        database.clear_chat_history(user_id, persona_key)
+        
+        # Log analytics event
+        try:
+            database.log_user_analytics_event(user_id, "chat_history_cleared", "chat", "android_app", {
+                "persona_key": persona_key
+            })
+        except Exception:
+            pass
+            
+        logger.info(f"[REST API] Chat history cleared for user {user_id} (persona: {persona_key}). Memory vault intact.")
+        return web.json_response({
+            "success": True, 
+            "message": "Chat history cleared successfully. Memory vault preserved."
+        })
+    except Exception as e:
+        logger.error(f"Error in handle_api_clear_history: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+
 async def handle_api_chat(request):
     """API endpoint to process user messages sent from the Flutter mobile app."""
     try:
@@ -2103,6 +2145,8 @@ async def start_webhook_server(application, port=8080):
     app.router.add_post('/api/auth', handle_api_auth)
     app.router.add_get('/api/profile', handle_api_profile)
     app.router.add_get('/api/history', handle_api_history)
+    app.router.add_post('/api/history/clear', handle_api_clear_history)
+    app.router.add_delete('/api/history', handle_api_clear_history)
     app.router.add_post('/api/chat', handle_api_chat)
     app.router.add_post('/api/mode/toggle', handle_api_toggle_mode)
     app.router.add_post('/api/relationship/level', handle_api_set_relationship_level)

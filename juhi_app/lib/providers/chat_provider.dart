@@ -153,6 +153,23 @@ class ChatNotifier extends AsyncNotifier<List<ChatMessage>> {
     }
   }
 
+  Future<bool> clearChatHistory() async {
+    final userId = await LocalStorage.getUserId();
+    if (userId == null) return false;
+
+    try {
+      final res = await apiService.clearChatHistory(userId);
+      if (res['success'] == true) {
+        state = const AsyncData([]);
+        return true;
+      }
+    } catch (e) {
+      // ignore: avoid_print
+      print('[ChatProvider] Error clearing chat history: $e');
+    }
+    return false;
+  }
+
   void clearMessages() {
     state = const AsyncData([]);
   }

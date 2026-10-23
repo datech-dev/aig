@@ -8,6 +8,7 @@ class AppConstants {
   static const String apiAuth = '/api/auth';
   static const String apiProfile = '/api/profile';
   static const String apiHistory = '/api/history';
+  static const String apiHistoryClear = '/api/history/clear';
   static const String apiChat = '/api/chat';
   static const String apiToggleMode = '/api/mode/toggle';
   static const String apiMemories = '/api/memories';

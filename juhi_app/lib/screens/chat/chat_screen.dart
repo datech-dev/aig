@@ -221,6 +221,121 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     } catch (_) {}
   }
 
+  void _confirmClearChat() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.card,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.redAccent.withValues(alpha: 0.15),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.delete_sweep_rounded,
+                  color: Colors.redAccent, size: 22),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text(
+                'Clear Chat History?',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
+                  fontSize: 18,
+                ),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'This will clear the conversation messages from this screen and start a fresh session.',
+              style: TextStyle(
+                color: AppTheme.textSecondary,
+                fontSize: 14,
+                height: 1.45,
+              ),
+            ),
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF22C55E).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: const Color(0xFF22C55E).withValues(alpha: 0.35),
+                  width: 1,
+                ),
+              ),
+              child: const Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('🧠', style: TextStyle(fontSize: 16)),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Memory Vault Safe: Juhi will NOT forget your personal facts, habits, or relationship memories.',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(
+              'Keep Chat',
+              style: TextStyle(color: AppTheme.textSecondary),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final success =
+                  await ref.read(chatProvider.notifier).clearChatHistory();
+              if (mounted) {
+                HapticFeedback.mediumImpact();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(success
+                        ? 'Chat history cleared. Memory Vault remains intact 💕'
+                        : 'Failed to clear chat history. Please try again.'),
+                    backgroundColor: AppTheme.surface,
+                    behavior: SnackBarBehavior.floating,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                  ),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+            ),
+            child: const Text('Clear Chat'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final chatState = ref.watch(chatProvider);
@@ -247,6 +362,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                     ref,
                     currentLevel: profile?.level ?? 1,
                   ),
+                  onClearChat: _confirmClearChat,
+                  onMemoriesTap: () => context.go('/memories'),
                 ),
 
                 // ── Messages ─────────────────────────────────────────────────
@@ -313,12 +430,16 @@ class _ChatAppBar extends StatelessWidget {
   final VoidCallback onToggleMode;
   final VoidCallback onProfileTap;
   final VoidCallback? onLevelTap;
+  final VoidCallback onClearChat;
+  final VoidCallback onMemoriesTap;
 
   const _ChatAppBar({
     required this.profile,
     required this.onToggleMode,
     required this.onProfileTap,
     this.onLevelTap,
+    required this.onClearChat,
+    required this.onMemoriesTap,
   });
 
   @override
@@ -476,6 +597,82 @@ class _ChatAppBar extends StatelessWidget {
                     ],
                   ),
                 ),
+              ),
+
+              const SizedBox(width: 4),
+
+              // Options Menu (Clear Chat, Memory Vault)
+              PopupMenuButton<String>(
+                icon: const Icon(
+                  Icons.more_vert_rounded,
+                  color: Colors.white70,
+                  size: 22,
+                ),
+                color: AppTheme.card,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  side: const BorderSide(color: AppTheme.border, width: 0.8),
+                ),
+                elevation: 8,
+                onSelected: (val) {
+                  if (val == 'clear_chat') {
+                    onClearChat();
+                  } else if (val == 'memories') {
+                    onMemoriesTap();
+                  }
+                },
+                itemBuilder: (ctx) => [
+                  PopupMenuItem(
+                    value: 'clear_chat',
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: Colors.redAccent.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(Icons.delete_sweep_rounded,
+                              color: Colors.redAccent, size: 18),
+                        ),
+                        const SizedBox(width: 10),
+                        const Text(
+                          'Clear Chat History',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'memories',
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: AppTheme.primary.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(Icons.psychology_rounded,
+                              color: AppTheme.primary, size: 18),
+                        ),
+                        const SizedBox(width: 10),
+                        const Text(
+                          'Memory Vault',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
