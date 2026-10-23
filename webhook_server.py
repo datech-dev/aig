@@ -1052,12 +1052,9 @@ async def handle_api_clear_history(request):
             return web.json_response({"success": False, "error": "Missing user_id parameter"}, status=400)
             
         user_id = int(user_id)
-        if not persona_key:
-            settings = database.get_user_settings(user_id)
-            persona_key = settings["active_persona"] if settings else "juhi"
-            
         # Clear chat history only - user_memories is completely preserved
-        database.clear_chat_history(user_id, persona_key)
+        # If persona_key is None, clear all companion chat history for this user
+        database.clear_chat_history(user_id, persona_key=persona_key)
         
         # Log analytics event
         try:

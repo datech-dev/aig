@@ -25,25 +25,6 @@ class ChatNotifier extends AsyncNotifier<List<ChatMessage>> {
             .map((m) => ChatMessage.fromJson(m as Map<String, dynamic>))
             .toList();
 
-        // If history is completely empty, Juhi proactively starts the conversation!
-        if (history.isEmpty) {
-          try {
-            final proRes = await apiService.checkProactive(userId, force: true);
-            if (proRes['success'] == true &&
-                proRes['has_proactive'] == true &&
-                proRes['message'] != null) {
-              final proactiveMsg = ChatMessage(
-                role: 'assistant',
-                content: proRes['message'].toString(),
-                timestamp: DateTime.now(),
-              );
-              return [proactiveMsg];
-            }
-          } catch (proErr) {
-            // ignore: avoid_print
-            print('[ChatProvider] Proactive first conversation check: $proErr');
-          }
-        }
         return history;
       }
     } catch (e) {
@@ -156,6 +137,9 @@ class ChatNotifier extends AsyncNotifier<List<ChatMessage>> {
   Future<bool> clearChatHistory() async {
     final userId = await LocalStorage.getUserId();
     if (userId == null) return false;
+
+    // Immediately clear local message state so UI resets instantly
+    state = const AsyncData([]);
 
     try {
       final res = await apiService.clearChatHistory(userId);
