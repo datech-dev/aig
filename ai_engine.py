@@ -779,12 +779,12 @@ async def evaluate_proactive_decision(
     if (t_clean == "PROACTIVE_TRIGGER" or "GENERIC" in t_clean) and (not memories or len(memories) == 0):
         return {"decision": "DONT_SEND", "reason": "No pending memories, events, or specific reasons exist to justify proactive reachout.", "message": None}
 
-    mem_list = "\n".join([f"- {m}" for m in (memories or [])]) if memories else "None stored yet."
+    mem_list = "\n".join([f"- {m}" for m in (memories or [])[:3]]) if memories else "None."
     
     recent_msgs = []
-    for m in (chat_history or [])[-6:]:
+    for m in (chat_history or [])[-3:]:
         recent_msgs.append(f"{m.get('role', 'user')}: {m.get('content', '')}")
-    history_str = "\n".join(recent_msgs) if recent_msgs else "No recent history."
+    history_str = "\n".join(recent_msgs) if recent_msgs else "None."
 
     system_instruction = (
         "You are the Proactive Decision Engine for Juhi, an AI girlfriend & companion app.\n"
@@ -832,7 +832,7 @@ async def evaluate_proactive_decision(
             model=VENICE_MODEL,
             messages=messages,
             temperature=0.7,
-            max_tokens=200
+            max_tokens=60
         )
         raw_output = response.choices[0].message.content.strip()
         

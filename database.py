@@ -1917,6 +1917,55 @@ def get_proactive_logs(telegram_id=None, limit=10):
     return [dict(r) for r in rows]
 
 
+def get_proactive_sends_today():
+    """Returns the count of proactive messages sent across all users today."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    today_prefix = datetime.now().strftime("%Y-%m-%d")
+    cursor.execute("""
+        SELECT COUNT(*) as count FROM proactive_logs
+        WHERE decision = 'SEND' AND created_at LIKE ?
+    """, (f"{today_prefix}%",))
+    row = cursor.fetchone()
+    conn.close()
+    return row["count"] if row else 0
+
+
+def get_user_proactive_sends_today(telegram_id):
+    """Returns the count of proactive messages sent to a specific user today."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    today_prefix = datetime.now().strftime("%Y-%m-%d")
+    cursor.execute("""
+        SELECT COUNT(*) as count FROM proactive_logs
+        WHERE telegram_id = ? AND decision = 'SEND' AND created_at LIKE ?
+    """, (telegram_id, f"{today_prefix}%",))
+    row = cursor.fetchone()
+    conn.close()
+    return row["count"] if row else 0
+
+
+def get_active_users_for_proactive(within_hours=48):
+    """
+    Returns only users who have sent a message within the last `within_hours` hours,
+    filtering out test accounts, dormant users, and abandoned bots to protect token budget.
+    """
+    from datetime import timedelta
+    conn = get_connection()
+    cursor = conn.cursor()
+    cutoff = (datetime.now() - timedelta(hours=within_hours)).strftime("%Y-%m-%d %H:%M:%S")
+    cursor.execute("""
+        SELECT DISTINCT u.telegram_id, u.username, u.first_name
+        FROM users u
+        INNER JOIN chat_history c ON u.telegram_id = c.telegram_id
+        WHERE c.role = 'user' AND c.timestamp >= ?
+        ORDER BY c.timestamp DESC
+    """, (cutoff,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
 def get_all_registered_users():
     """Retrieves list of all registered users."""
     conn = get_connection()
