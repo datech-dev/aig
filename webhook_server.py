@@ -2183,7 +2183,7 @@ async def start_webhook_server(application, port=8080):
     # Start proactive companion background scheduler loop
     try:
         from proactive_engine import proactive_scheduler_loop
-        asyncio.create_task(proactive_scheduler_loop(application=application, interval_minutes=30))
+        asyncio.create_task(proactive_scheduler_loop(application=application, interval_minutes=120))
         logger.info("[PROACTIVE SCHEDULER] Periodic background loop initialized.")
     except Exception as e_pro:
         logger.error(f"Error starting proactive scheduler loop: {e_pro}")

@@ -60,16 +60,28 @@ Output STRICTLY valid JSON with no markdown wrapping:
 
 def _should_skip_memory_extraction(text: str) -> bool:
     clean = text.strip().lower()
-    if len(clean) < 5:
+    if len(clean) < 15:
         return True
     quick_skips = {
         "hi", "hello", "hey", "gm", "gn", "good morning", "good night", "ok", "okay",
         "cool", "nice", "yes", "no", "yep", "nope", "haha", "lol", "k", "bye", "cya",
         "send pic", "send selfie", "photo plz", "send photo", "who are you", "what is your name",
-        "how are you", "what are you doing", "what's up", "whats up"
+        "how are you", "what are you doing", "what's up", "whats up", "tell me a joke",
+        "are you there", "i miss you", "i love you", "you are cute", "good afternoon"
     }
     if clean in quick_skips:
         return True
+
+    # Personal indicator check: only call LLM if message contains personal pronouns/context
+    personal_keywords = (
+        "i ", "i'm", "my ", "me ", "myself", "live", "work", "job", "office", "study", "college",
+        "hobby", "favorite", "favourite", "hate", "love", "like", "prefer", "feel", "feeling",
+        "friend", "family", "mom", "dad", "sister", "brother", "wife", "dog", "cat", "born",
+        "tomorrow", "yesterday", "weekend", "interview", "exam", "doctor", "trip", "travel"
+    )
+    if not any(k in clean for k in personal_keywords):
+        return True
+
     return False
 
 

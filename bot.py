@@ -1507,11 +1507,8 @@ async def post_init(application: Application):
     from webhook_server import start_webhook_server
     from proactive_engine import proactive_scheduler_loop
     
-    # Start Razorpay webhook server on port 8080 (shares the telegram event loop)
+    # Start Razorpay webhook server on port 8080 (which also initializes the single proactive scheduler loop)
     asyncio.create_task(start_webhook_server(application, port=8080))
-    
-    # Start Proactive Decision Engine background scheduler (evaluates every 30 minutes)
-    asyncio.create_task(proactive_scheduler_loop(application, interval_minutes=30))
     
     # Overwrite & update official bot command list in Telegram to remove old third-party menus
     commands = [

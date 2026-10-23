@@ -54,7 +54,17 @@ async def evaluate_proactive_for_user(telegram_id: int, force: bool = False, tri
 
     # Cooldown checks (skip if force=True)
     if not force:
-        # Check last proactive message sent to user
+        # 1. Quiet hours check: never call LLM between 11 PM and 7 AM
+        hour = eval_now.hour
+        if hour >= 23 or hour < 7:
+            return {
+                "telegram_id": telegram_id,
+                "decision": "DONT_SEND",
+                "reason": "Quiet hours (11 PM - 7 AM). Let user rest without interruption.",
+                "message": None
+            }
+
+        # 2. Check last proactive message sent to user
         last_proactive = database.get_last_proactive_sent_time(telegram_id)
         if last_proactive:
             try:
@@ -70,7 +80,23 @@ async def evaluate_proactive_for_user(telegram_id: int, force: bool = False, tri
             except Exception:
                 pass
 
-        # Check last user message timestamp
+        # 3. Check last proactive evaluation timestamp (prevent re-evaluating every loop on DONT_SEND)
+        last_eval = database.get_last_proactive_evaluation_time(telegram_id)
+        if last_eval:
+            try:
+                last_eval_dt = datetime.fromisoformat(str(last_eval))
+                hours_since_eval = (eval_now - last_eval_dt).total_seconds() / 3600.0
+                if hours_since_eval < 4.0:  # Minimum 4 hours between LLM evaluations
+                    return {
+                        "telegram_id": telegram_id,
+                        "decision": "DONT_SEND",
+                        "reason": f"Evaluated recently ({hours_since_eval:.1f}h ago < 4h evaluation cooldown).",
+                        "message": None
+                    }
+            except Exception:
+                pass
+
+        # 4. Check last user message timestamp
         last_user_msg = database.get_last_user_message_time(telegram_id)
         if last_user_msg:
             try:
@@ -92,6 +118,23 @@ async def evaluate_proactive_for_user(telegram_id: int, force: bool = False, tri
     time_context = get_time_of_day_context(eval_now)
     if trigger_type != "NORMAL":
         time_context += f" | Trigger Context: {trigger_type}"
+
+    # 5. Smart rule-based trigger gate before invoking LLM:
+    # Only call LLM if there is a real reason: morning window, evening window, due life event, or first convo
+    is_morning_window = 8 <= eval_now.hour <= 10
+    is_evening_window = 19 <= eval_now.hour <= 22
+    has_due_event = any(ev.get("status") == "FOLLOW_UP_DUE" for ev in database.get_user_events(telegram_id))
+    has_no_history = not chat_history
+
+    if not force and trigger_type == "NORMAL":
+        if not (is_morning_window or is_evening_window or has_due_event or has_no_history):
+            database.log_proactive_decision(telegram_id, "DONT_SEND", "Outside reach-out windows (morning/evening) and no due events", None)
+            return {
+                "telegram_id": telegram_id,
+                "decision": "DONT_SEND",
+                "reason": "Outside proactive reach-out windows and no pending life events to follow up on.",
+                "message": None
+            }
 
     # If no chat history exists, trigger FIRST_CONVERSATION to start the chat
     effective_trigger = trigger_type
@@ -179,7 +222,7 @@ async def execute_proactive_check(application=None, telegram_id: int = None, for
     return results
 
 
-async def proactive_scheduler_loop(application=None, interval_minutes: int = 30):
+async def proactive_scheduler_loop(application=None, interval_minutes: int = 120):
     """Background periodic loop to run proactive decision engine checks."""
     logger.info(f"[PROACTIVE SCHEDULER] Started running every {interval_minutes} minutes.")
     while True:

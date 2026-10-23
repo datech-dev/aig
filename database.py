@@ -1883,6 +1883,20 @@ def get_last_proactive_sent_time(telegram_id):
     return row["created_at"] if row else None
 
 
+def get_last_proactive_evaluation_time(telegram_id):
+    """Returns the ISO timestamp string of the last proactive decision evaluation (SEND or DONT_SEND)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT created_at FROM proactive_logs
+        WHERE telegram_id = ?
+        ORDER BY created_at DESC LIMIT 1
+    """, (telegram_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return row["created_at"] if row else None
+
+
 def get_proactive_logs(telegram_id=None, limit=10):
     """Retrieves recent proactive decision logs."""
     conn = get_connection()
