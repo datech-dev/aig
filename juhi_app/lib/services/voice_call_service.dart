@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
@@ -214,9 +215,17 @@ class VoiceCallService extends ChangeNotifier {
       try {
         file.deleteSync();
       } catch (_) {}
-    } catch (e) {
-      debugPrint('[VoiceCallService] Turn processing error: $e');
-      _setStatus(VoiceCallStatus.idle, 'Connection hiccup. Tap to speak again.');
+    } catch (e, st) {
+      debugPrint('[VoiceCallService] Turn processing error: $e\n$st');
+      String msg = 'Connection hiccup. Tap to speak again.';
+      if (e is DioException) {
+        if (e.type == DioExceptionType.connectionTimeout || e.type == DioExceptionType.receiveTimeout) {
+          msg = 'Connection timed out. Tap to speak again.';
+        } else if (e.response?.data is Map && (e.response!.data as Map)['error'] != null) {
+          msg = (e.response!.data as Map)['error'].toString();
+        }
+      }
+      _setStatus(VoiceCallStatus.idle, msg);
     }
   }
 

@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/theme.dart';
+import '../../data/local_storage.dart';
 import '../../providers/profile_provider.dart';
 import '../../services/voice_call_service.dart';
 
@@ -31,9 +32,17 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen>
     });
   }
 
-  Future<void> _initiateCall() async {
+  Future<String> _getEffectiveUserId() async {
+    final localId = await LocalStorage.getUserId();
+    if (localId != null && localId.isNotEmpty) return localId;
     final profile = ref.read(profileProvider).valueOrNull;
-    final userId = profile?.userId.toString() ?? '7770001';
+    if (profile?.userId != null) return profile!.userId.toString();
+    return '7770001';
+  }
+
+  Future<void> _initiateCall() async {
+    final userId = await _getEffectiveUserId();
+    final profile = ref.read(profileProvider).valueOrNull;
     final partnerName = profile?.partnerName ?? 'Juhi';
 
     await voiceCallService.startCall(userId, partnerName: partnerName);
@@ -60,8 +69,7 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen>
   }
 
   void _onMicTap() async {
-    final profile = ref.read(profileProvider).valueOrNull;
-    final userId = profile?.userId.toString() ?? '7770001';
+    final userId = await _getEffectiveUserId();
 
     HapticFeedback.mediumImpact();
     if (voiceCallService.status == VoiceCallStatus.listening) {
@@ -90,8 +98,7 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen>
   }
 
   void _onMicLongPressEnd() async {
-    final profile = ref.read(profileProvider).valueOrNull;
-    final userId = profile?.userId.toString() ?? '7770001';
+    final userId = await _getEffectiveUserId();
 
     setState(() => _isHoldingMic = false);
     HapticFeedback.lightImpact();

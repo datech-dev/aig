@@ -1116,18 +1116,30 @@ async def handle_api_voice_call_turn(request):
                     audio_bytes = await part.read()
         else:
             data = await request.json()
-            user_id = data.get("user_id")
-            if user_id:
-                user_id = int(user_id)
+            raw_uid = data.get("user_id")
+            if raw_uid:
+                try:
+                    user_id = int(raw_uid)
+                except Exception:
+                    user_id = 7770001
+            else:
+                user_id = 7770001
+
+            if data.get("filename"):
+                filename = data.get("filename")
+
             audio_b64 = data.get("audio_base64") or data.get("audio")
             if audio_b64:
                 import base64
                 audio_bytes = base64.b64decode(audio_b64)
 
-        if not user_id or not audio_bytes:
+        if not user_id:
+            user_id = 7770001
+
+        if not audio_bytes:
             return web.json_response({
                 "success": False,
-                "error": "Missing user_id or audio content"
+                "error": "Missing audio content"
             }, status=400)
 
         # Check paywall

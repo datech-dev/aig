@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:dio/dio.dart';
 import '../core/constants.dart';
 
@@ -263,21 +265,21 @@ class ApiService {
     required String userId,
     required String filePath,
   }) async {
+    final file = File(filePath);
+    final bytes = await file.readAsBytes();
+    final audioBase64 = base64Encode(bytes);
     final isWav = filePath.toLowerCase().endsWith('.wav');
-    final formData = FormData.fromMap({
-      'user_id': userId,
-      'audio': await MultipartFile.fromFile(
-        filePath,
-        filename: isWav ? 'voice_input.wav' : 'voice_input.m4a',
-      ),
-    });
 
     final response = await _dio.post(
       AppConstants.apiVoiceCallTurn,
-      data: formData,
+      data: {
+        'user_id': userId,
+        'audio_base64': audioBase64,
+        'filename': isWav ? 'voice_input.wav' : 'voice_input.m4a',
+      },
       options: Options(
-        sendTimeout: const Duration(seconds: 35),
-        receiveTimeout: const Duration(seconds: 45),
+        sendTimeout: const Duration(seconds: 40),
+        receiveTimeout: const Duration(seconds: 50),
       ),
     );
     return response.data as Map<String, dynamic>;
