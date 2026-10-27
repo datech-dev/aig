@@ -257,6 +257,62 @@ class ApiService {
       return false;
     }
   }
+
+  // ── Voice Call (Sarvam Saaras v4 STT & Bulbul v4 TTS) ─────────────────────
+  Future<Map<String, dynamic>> sendVoiceCallTurn({
+    required String userId,
+    required String filePath,
+  }) async {
+    final formData = FormData.fromMap({
+      'user_id': userId,
+      'audio': await MultipartFile.fromFile(
+        filePath,
+        filename: 'voice_input.m4a',
+      ),
+    });
+
+    final response = await _dio.post(
+      AppConstants.apiVoiceCallTurn,
+      data: formData,
+      options: Options(
+        sendTimeout: const Duration(seconds: 35),
+        receiveTimeout: const Duration(seconds: 45),
+      ),
+    );
+    return response.data as Map<String, dynamic>;
+  }
+
+  Future<String> transcribeAudio({
+    required String filePath,
+  }) async {
+    final formData = FormData.fromMap({
+      'audio': await MultipartFile.fromFile(
+        filePath,
+        filename: 'speech.m4a',
+      ),
+    });
+
+    final response = await _dio.post(
+      AppConstants.apiVoiceStt,
+      data: formData,
+    );
+    final data = response.data as Map<String, dynamic>;
+    return (data['transcript'] as String?) ?? '';
+  }
+
+  Future<Map<String, dynamic>> synthesizeSpeech({
+    required String text,
+    String? speaker,
+  }) async {
+    final response = await _dio.post(
+      AppConstants.apiVoiceTts,
+      data: {
+        'text': text,
+        if (speaker != null) 'speaker': speaker,
+      },
+    );
+    return response.data as Map<String, dynamic>;
+  }
 }
 
 // Singleton instance

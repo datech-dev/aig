@@ -11,6 +11,13 @@ VENICE_MODEL = os.getenv("VENICE_MODEL", "aion-labs-aion-3-5-mini")
 VENICE_IMAGE_MODEL = os.getenv("VENICE_IMAGE_MODEL", "fluently-xl")
 GIPHY_API_KEY = os.getenv("GIPHY_API_KEY", "TWPWLly8Lf8NmpjQaX3PbFreGjp9zgPJ")
 
+# Sarvam.ai Voice AI Configuration (Saaras v4 STT & Bulbul v4 TTS)
+SARVAM_API_KEY = os.getenv("SARVAM_API_KEY", "sk_0xkzp1wx_6q3HzWbvZXEoerUGEVwCjBIL")
+SARVAM_STT_MODEL = os.getenv("SARVAM_STT_MODEL", "saaras:v4")
+SARVAM_TTS_MODEL = os.getenv("SARVAM_TTS_MODEL", "bulbul:v4-flash")
+SARVAM_TTS_SPEAKER = os.getenv("SARVAM_TTS_SPEAKER", "ishita_enhi_companion")
+SARVAM_API_BASE_URL = os.getenv("SARVAM_API_BASE_URL", "https://api.sarvam.ai")
+
 
 # Payment Gateway Credentials (Razorpay & Instamojo)
 PAYMENT_GATEWAY = os.getenv("PAYMENT_GATEWAY", "razorpay")

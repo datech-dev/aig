@@ -1083,6 +1083,132 @@ async def handle_api_chat(request):
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
 
+async def handle_api_voice_call_turn(request):
+    """
+    Handles a full conversational voice call turn:
+    1. Receives recorded user speech (multipart form or base64 JSON).
+    2. Transcribes speech using Sarvam Saaras v4.
+    3. Generates context-aware emotional response via Juhi AI companion engine.
+    4. Synthesizes voice audio using Sarvam Bulbul v4.
+    5. Returns user transcript, AI text reply, and base64 audio.
+    """
+    try:
+        import voice_service
+        user_id = None
+        audio_bytes = None
+
+        if request.content_type.startswith("multipart/"):
+            reader = await request.multipart()
+            while True:
+                part = await reader.next()
+                if part is None:
+                    break
+                if part.name == "user_id":
+                    user_id = int((await part.text()).strip())
+                elif part.name in ("audio", "file"):
+                    audio_bytes = await part.read()
+        else:
+            data = await request.json()
+            user_id = data.get("user_id")
+            if user_id:
+                user_id = int(user_id)
+            audio_b64 = data.get("audio_base64") or data.get("audio")
+            if audio_b64:
+                import base64
+                audio_bytes = base64.b64decode(audio_b64)
+
+        if not user_id or not audio_bytes:
+            return web.json_response({
+                "success": False,
+                "error": "Missing user_id or audio content"
+            }, status=400)
+
+        # Check paywall
+        is_subscribed = database.is_chat_subscribed(user_id)
+        billing = database.get_user_billing(user_id)
+        free_used = billing.get("free_messages_used", 0) if billing else 0
+        
+        if not is_subscribed and free_used >= config.FREE_MESSAGE_LIMIT:
+            paywall_text = "Aww sweetie, our daily free minutes just ran out! Unlock unlimited calls with me in the VIP lounge so we can keep talking."
+            audio_b64, audio_fmt = await voice_service.text_to_speech(paywall_text)
+            return web.json_response({
+                "success": False,
+                "is_paywall": True,
+                "user_transcript": "",
+                "ai_reply": paywall_text,
+                "audio_base64": audio_b64,
+                "audio_format": audio_fmt,
+                "remaining_free": 0
+            })
+
+        result = await voice_service.process_voice_call_turn(
+            user_id=user_id,
+            audio_bytes=audio_bytes,
+            platform="android_app"
+        )
+        return web.json_response(result)
+    except Exception as e:
+        logger.error(f"Error in handle_api_voice_call_turn: {e}", exc_info=True)
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+
+async def handle_api_voice_stt(request):
+    """Standalone STT endpoint using Sarvam Saaras v4."""
+    try:
+        import voice_service
+        audio_bytes = None
+        if request.content_type.startswith("multipart/"):
+            reader = await request.multipart()
+            while True:
+                part = await reader.next()
+                if part is None:
+                    break
+                if part.name in ("audio", "file"):
+                    audio_bytes = await part.read()
+        else:
+            data = await request.json()
+            audio_b64 = data.get("audio_base64") or data.get("audio")
+            if audio_b64:
+                import base64
+                audio_bytes = base64.b64decode(audio_b64)
+
+        if not audio_bytes:
+            return web.json_response({"success": False, "error": "Missing audio"}, status=400)
+
+        transcript = await voice_service.speech_to_text(audio_bytes)
+        return web.json_response({"success": True, "transcript": transcript})
+    except Exception as e:
+        logger.error(f"Error in handle_api_voice_stt: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+
+async def handle_api_voice_tts(request):
+    """Standalone TTS endpoint using Sarvam Bulbul v4."""
+    try:
+        import voice_service
+        data = await request.json()
+        text = data.get("text", "").strip()
+        speaker = data.get("speaker")
+        target_lang = data.get("language_code", "en-IN")
+
+        if not text:
+            return web.json_response({"success": False, "error": "Missing text"}, status=400)
+
+        audio_b64, audio_fmt = await voice_service.text_to_speech(
+            text=text,
+            target_language_code=target_lang,
+            speaker=speaker
+        )
+        return web.json_response({
+            "success": True,
+            "audio_base64": audio_b64,
+            "audio_format": audio_fmt
+        })
+    except Exception as e:
+        logger.error(f"Error in handle_api_voice_tts: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+
 async def handle_api_toggle_mode(request):
     """API endpoint to toggle chat mode for mobile app."""
     try:
@@ -1947,6 +2073,11 @@ async def start_webhook_server(application, port=8080):
     app.router.add_post('/api/notifications/test', handle_api_test_notification)
     app.router.add_get('/api/proactive/check', handle_api_proactive_check)
     app.router.add_post('/api/proactive/check', handle_api_proactive_check)
+    
+    # Voice Call Endpoints (Sarvam Saaras v4 STT & Bulbul v4 TTS)
+    app.router.add_post('/api/voice/call-turn', handle_api_voice_call_turn)
+    app.router.add_post('/api/voice/stt', handle_api_voice_stt)
+    app.router.add_post('/api/voice/tts', handle_api_voice_tts)
     
     base_dir = os.path.dirname(os.path.abspath(__file__))
     assets_dir = os.path.join(base_dir, 'assets')

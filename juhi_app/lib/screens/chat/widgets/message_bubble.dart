@@ -4,6 +4,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:shimmer/shimmer.dart';
 import '../../../core/theme.dart';
 import '../../../models/chat_message.dart';
+import '../../../services/voice_call_service.dart';
 
 class MessageBubble extends StatelessWidget {
   final ChatMessage message;
@@ -216,6 +217,19 @@ class _AiBubble extends StatelessWidget {
                           mainAxisSize: MainAxisSize.min,
                           mainAxisAlignment: MainAxisAlignment.end,
                           children: [
+                            if (!isPaywall && message.content.isNotEmpty) ...[
+                              GestureDetector(
+                                onTap: () => voiceCallService.speakChatMessage(message.content),
+                                child: Padding(
+                                  padding: const EdgeInsets.only(right: 8),
+                                  child: Icon(
+                                    Icons.volume_up_rounded,
+                                    size: 15,
+                                    color: AppTheme.textSecondary.withValues(alpha: 0.85),
+                                  ),
+                                ),
+                              ),
+                            ],
                             Text(
                               message.formattedTime,
                               style: TextStyle(

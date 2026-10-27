@@ -21,6 +21,9 @@ class AppConstants {
   static const String apiRelationshipLevel = '/api/relationship/level';
   static const String apiAnalyticsEvent = '/api/analytics/event';
   static const String apiAnalyticsBatch = '/api/analytics/events/batch';
+  static const String apiVoiceCallTurn = '/api/voice/call-turn';
+  static const String apiVoiceStt = '/api/voice/stt';
+  static const String apiVoiceTts = '/api/voice/tts';
 
   // ── Storage Keys ──────────────────────────────────────────────────────────
   static const String keyUserId = 'user_id';

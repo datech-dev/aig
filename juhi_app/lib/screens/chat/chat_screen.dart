@@ -388,6 +388,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                   ),
                   onClearChat: _confirmClearChat,
                   onMemoriesTap: () => context.go('/memories'),
+                  onVoiceCallTap: () {
+                    analyticsService.logEvent('voice_call_initiated', metadata: {'source': 'chat_app_bar'});
+                    context.push('/call');
+                  },
                 ),
 
                 // ── Messages ─────────────────────────────────────────────────
@@ -459,6 +463,7 @@ class _ChatAppBar extends StatelessWidget {
   final VoidCallback? onLevelTap;
   final VoidCallback onClearChat;
   final VoidCallback onMemoriesTap;
+  final VoidCallback onVoiceCallTap;
 
   const _ChatAppBar({
     required this.profile,
@@ -467,6 +472,7 @@ class _ChatAppBar extends StatelessWidget {
     this.onLevelTap,
     required this.onClearChat,
     required this.onMemoriesTap,
+    required this.onVoiceCallTap,
   });
 
   @override
@@ -626,7 +632,56 @@ class _ChatAppBar extends StatelessWidget {
                 ),
               ),
 
-              const SizedBox(width: 4),
+              const SizedBox(width: 8),
+
+              // Voice Call Button (Sarvam Saaras + Bulbul AI Voice Call)
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: onVoiceCallTap,
+                  borderRadius: BorderRadius.circular(20),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF059669), Color(0xFF10B981)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF10B981).withValues(alpha: 0.45),
+                          blurRadius: 10,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.phone_in_talk_rounded,
+                          color: Colors.white,
+                          size: 15,
+                        ),
+                        SizedBox(width: 4),
+                        Text(
+                          'Call',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                            letterSpacing: 0.2,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+
+              const SizedBox(width: 2),
 
               // Options Menu (Clear Chat, Memory Vault)
               PopupMenuButton<String>(

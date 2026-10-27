@@ -9,6 +9,7 @@ import '../screens/profile/profile_screen.dart';
 import '../screens/store/store_screen.dart';
 import '../screens/memories/memories_screen.dart';
 import '../screens/settings/settings_screen.dart';
+import '../screens/voice_call/voice_call_screen.dart';
 import '../widgets/main_shell.dart';
 import 'analytics_navigator_observer.dart';
 
@@ -53,6 +54,12 @@ final routerProvider = Provider<GoRouter>((ref) {
         name: 'onboarding',
         path: '/onboarding',
         builder: (context, state) => const OnboardingScreen(),
+      ),
+      GoRoute(
+        name: 'call',
+        path: '/call',
+        parentNavigatorKey: rootNavigatorKey,
+        builder: (context, state) => const VoiceCallScreen(),
       ),
       ShellRoute(
         builder: (context, state, child) => MainShell(child: child),
