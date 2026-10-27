@@ -115,7 +115,10 @@ class VoiceCallService extends ChangeNotifier {
     return await _recorder.hasPermission();
   }
 
-  /// Start recording user's speech
+  DateTime? _recordingStartTime;
+  bool get isRecording => _status == VoiceCallStatus.listening;
+
+  /// Start recording user's speech in 16kHz mono WAV format (ideal for Sarvam Saaras v4)
   Future<void> startRecording() async {
     if (_status == VoiceCallStatus.speaking) {
       await _player.stop();
@@ -123,25 +126,26 @@ class VoiceCallService extends ChangeNotifier {
 
     final hasPerm = await _recorder.hasPermission();
     if (!hasPerm) {
-      _setStatus(VoiceCallStatus.error, 'Microphone access denied');
+      _setStatus(VoiceCallStatus.error, 'Microphone permission needed to talk with Juhi');
       return;
     }
 
     try {
       final dir = await getTemporaryDirectory();
-      final path = '${dir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.m4a';
+      final path = '${dir.path}/voice_${DateTime.now().millisecondsSinceEpoch}.wav';
       _currentRecordingPath = path;
+      _recordingStartTime = DateTime.now();
 
       await _recorder.start(
         const RecordConfig(
-          encoder: AudioEncoder.aacLc,
-          bitRate: 128000,
-          sampleRate: 44100,
+          encoder: AudioEncoder.wav,
+          sampleRate: 16000,
+          numChannels: 1,
         ),
         path: path,
       );
 
-      _setStatus(VoiceCallStatus.listening, 'Juhi is listening to you... 🎙️');
+      _setStatus(VoiceCallStatus.listening, 'Juhi is listening... Speak now 🎙️');
     } catch (e) {
       debugPrint('[VoiceCallService] Start recording error: $e');
       _setStatus(VoiceCallStatus.error, 'Could not start recording: $e');
@@ -152,12 +156,31 @@ class VoiceCallService extends ChangeNotifier {
   Future<void> stopRecordingAndSend(String userId) async {
     if (_status != VoiceCallStatus.listening) return;
 
+    // Buffer protection: if the recording was ultra-short, wait briefly to capture full syllable
+    if (_recordingStartTime != null) {
+      final elapsed = DateTime.now().difference(_recordingStartTime!).inMilliseconds;
+      if (elapsed < 600) {
+        await Future.delayed(Duration(milliseconds: 600 - elapsed));
+      }
+    }
+
     try {
       final path = await _recorder.stop();
       final recordedPath = path ?? _currentRecordingPath;
 
       if (recordedPath == null || !File(recordedPath).existsSync()) {
-        _setStatus(VoiceCallStatus.idle, 'No speech detected. Tap to try again.');
+        _setStatus(VoiceCallStatus.idle, 'Tap microphone to speak with Juhi');
+        return;
+      }
+
+      final file = File(recordedPath);
+      final fileSize = await file.length();
+      debugPrint('[VoiceCallService] Recorded WAV size: $fileSize bytes');
+
+      // Ignore micro-recordings under 2500 bytes (header only)
+      if (fileSize < 2500) {
+        _setStatus(VoiceCallStatus.idle, 'Tap and speak for a moment so Juhi can hear you!');
+        try { file.deleteSync(); } catch (_) {}
         return;
       }
 
@@ -189,11 +212,20 @@ class VoiceCallService extends ChangeNotifier {
 
       // Cleanup local temp file
       try {
-        File(recordedPath).deleteSync();
+        file.deleteSync();
       } catch (_) {}
     } catch (e) {
       debugPrint('[VoiceCallService] Turn processing error: $e');
       _setStatus(VoiceCallStatus.idle, 'Connection hiccup. Tap to speak again.');
+    }
+  }
+
+  /// Toggle recording state (single tap to talk, single tap to finish)
+  Future<void> toggleRecording(String userId) async {
+    if (_status == VoiceCallStatus.listening) {
+      await stopRecordingAndSend(userId);
+    } else {
+      await startRecording();
     }
   }
 

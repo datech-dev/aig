@@ -1097,6 +1097,9 @@ async def handle_api_voice_call_turn(request):
         user_id = None
         audio_bytes = None
 
+        filename = "voice_input.wav"
+        content_type = "audio/wav"
+
         if request.content_type.startswith("multipart/"):
             reader = await request.multipart()
             while True:
@@ -1106,6 +1109,10 @@ async def handle_api_voice_call_turn(request):
                 if part.name == "user_id":
                     user_id = int((await part.text()).strip())
                 elif part.name in ("audio", "file"):
+                    if part.filename:
+                        filename = part.filename
+                    if part.headers.get("Content-Type"):
+                        content_type = part.headers.get("Content-Type")
                     audio_bytes = await part.read()
         else:
             data = await request.json()
@@ -1144,6 +1151,8 @@ async def handle_api_voice_call_turn(request):
         result = await voice_service.process_voice_call_turn(
             user_id=user_id,
             audio_bytes=audio_bytes,
+            filename=filename,
+            mime_type=content_type,
             platform="android_app"
         )
         return web.json_response(result)

@@ -39,10 +39,29 @@ def clean_text_for_speech(text: str) -> str:
     return cleaned
 
 
+def detect_audio_format(audio_bytes: bytes) -> Tuple[str, str]:
+    """
+    Inspect magic header bytes to determine file extension and Sarvam-compatible MIME type.
+    """
+    if len(audio_bytes) >= 12 and audio_bytes[:4] == b"RIFF" and audio_bytes[8:12] == b"WAVE":
+        return "audio.wav", "audio/wav"
+    if len(audio_bytes) >= 4 and (audio_bytes[:3] == b"ID3" or audio_bytes[:2] in (b"\xff\xfb", b"\xff\xf3", b"\xff\xf2")):
+        return "audio.mp3", "audio/mpeg"
+    if len(audio_bytes) >= 8 and audio_bytes[4:8] == b"ftyp":
+        # Sarvam requires 'audio/mp4' or 'audio/x-m4a' for MP4/M4A containers
+        return "audio.mp4", "audio/mp4"
+    if len(audio_bytes) >= 4 and audio_bytes[:4] == b"OggS":
+        return "audio.ogg", "audio/ogg"
+    if len(audio_bytes) >= 4 and audio_bytes[:4] == b"fLaC":
+        return "audio.flac", "audio/flac"
+    # Default fallback
+    return "audio.wav", "audio/wav"
+
+
 async def speech_to_text(
     audio_bytes: bytes,
-    filename: str = "audio.wav",
-    mime_type: str = "audio/wav",
+    filename: Optional[str] = None,
+    mime_type: Optional[str] = None,
     model: Optional[str] = None
 ) -> str:
     """
@@ -58,12 +77,22 @@ async def speech_to_text(
         "api-subscription-key": api_key
     }
 
+    det_filename, det_mime = detect_audio_format(audio_bytes)
+    final_filename = filename if (filename and "." in filename) else det_filename
+    final_mime = mime_type if (mime_type and "/" in mime_type and mime_type != "application/octet-stream") else det_mime
+
+    # Normalize audio/m4a to audio/mp4 for Sarvam API compatibility
+    if final_mime == "audio/m4a":
+        final_mime = "audio/mp4"
+
+    logger.info(f"[Sarvam STT] Submitting {len(audio_bytes)} bytes as '{final_filename}' ({final_mime}) with model '{stt_model}'")
+
     form_data = aiohttp.FormData()
     form_data.add_field(
         "file",
         audio_bytes,
-        filename=filename,
-        content_type=mime_type
+        filename=final_filename,
+        content_type=final_mime
     )
     form_data.add_field("model", stt_model)
 
@@ -135,6 +164,8 @@ async def text_to_speech(
 async def process_voice_call_turn(
     user_id: int,
     audio_bytes: bytes,
+    filename: Optional[str] = None,
+    mime_type: Optional[str] = None,
     platform: str = "android_app"
 ) -> Dict[str, Any]:
     """
@@ -145,8 +176,29 @@ async def process_voice_call_turn(
     """
     import ai_engine
 
-    # Step 1: Speech-to-Text
-    transcript = await speech_to_text(audio_bytes)
+    logger.info(f"[Voice Call Turn] Processing call turn for user {user_id} ({len(audio_bytes)} audio bytes)")
+
+    # Check for empty/micro-duration audio (accidental tap)
+    if len(audio_bytes) < 3000:
+        logger.warning(f"[Voice Call Turn] Audio too short ({len(audio_bytes)} bytes). Treating as quick tap.")
+        default_reply = "I'm listening, sweetie! Tap and speak for a moment so I can hear your lovely voice."
+        audio_b64, audio_fmt = await text_to_speech(default_reply)
+        return {
+            "success": True,
+            "user_transcript": "",
+            "ai_reply": default_reply,
+            "audio_base64": audio_b64,
+            "audio_format": audio_fmt,
+            "emotion": "attentive",
+            "relationship_level": database.get_user_relationship_level(user_id) if hasattr(database, "get_user_relationship_level") else 1
+        }
+
+    # Step 1: Speech-to-Text with auto-format detection
+    try:
+        transcript = await speech_to_text(audio_bytes, filename=filename, mime_type=mime_type)
+    except Exception as stt_err:
+        logger.error(f"[Voice Turn] Sarvam STT error: {stt_err}", exc_info=True)
+        transcript = ""
     
     if not transcript:
         # Handle silence / inaudible speech gracefully

@@ -59,20 +59,42 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen>
     }
   }
 
-  void _onMicTapDown() async {
+  void _onMicTap() async {
+    final profile = ref.read(profileProvider).valueOrNull;
+    final userId = profile?.userId.toString() ?? '7770001';
+
+    HapticFeedback.mediumImpact();
+    if (voiceCallService.status == VoiceCallStatus.listening) {
+      // Tap while listening -> stop and send!
+      setState(() => _isHoldingMic = false);
+      await voiceCallService.stopRecordingAndSend(userId);
+    } else {
+      // Tap to start speaking!
+      if (voiceCallService.status == VoiceCallStatus.speaking) {
+        await voiceCallService.stopSpeaking();
+      }
+      setState(() => _isHoldingMic = true);
+      await voiceCallService.startRecording();
+    }
+  }
+
+  void _onMicLongPressStart() async {
     if (voiceCallService.status == VoiceCallStatus.speaking) {
       await voiceCallService.stopSpeaking();
     }
-    setState(() => _isHoldingMic = true);
-    HapticFeedback.mediumImpact();
-    await voiceCallService.startRecording();
+    if (voiceCallService.status != VoiceCallStatus.listening) {
+      HapticFeedback.heavyImpact();
+      setState(() => _isHoldingMic = true);
+      await voiceCallService.startRecording();
+    }
   }
 
-  void _onMicTapUp() async {
-    setState(() => _isHoldingMic = false);
-    HapticFeedback.lightImpact();
+  void _onMicLongPressEnd() async {
     final profile = ref.read(profileProvider).valueOrNull;
     final userId = profile?.userId.toString() ?? '7770001';
+
+    setState(() => _isHoldingMic = false);
+    HapticFeedback.lightImpact();
     await voiceCallService.stopRecordingAndSend(userId);
   }
 
@@ -410,11 +432,11 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen>
                           },
                         ),
 
-                        // Big Push-To-Talk / Voice Orb
+                        // Big Push-To-Talk / Voice Orb (Supports Tap to Talk & Hold to Talk)
                         GestureDetector(
-                          onTapDown: (_) => _onMicTapDown(),
-                          onTapUp: (_) => _onMicTapUp(),
-                          onTapCancel: () => _onMicTapUp(),
+                          onTap: _onMicTap,
+                          onLongPressStart: (_) => _onMicLongPressStart(),
+                          onLongPressEnd: (_) => _onMicLongPressEnd(),
                           child: AnimatedContainer(
                             duration: const Duration(milliseconds: 200),
                             width: 82,
@@ -431,7 +453,7 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen>
                                   color: (isListening
                                           ? const Color(0xFF00E5FF)
                                           : AppTheme.primary)
-                                      .withValues(alpha: 0.5),
+                                      .withValues(alpha: 0.55),
                                   blurRadius: isListening ? 28 : 16,
                                   spreadRadius: isListening ? 6 : 2,
                                 ),
@@ -440,10 +462,10 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen>
                             child: Center(
                               child: Icon(
                                 isListening
-                                    ? Icons.graphic_eq_rounded
+                                    ? Icons.stop_rounded
                                     : Icons.mic_rounded,
                                 color: Colors.white,
-                                size: 36,
+                                size: 38,
                               ),
                             ),
                           ),
@@ -460,14 +482,23 @@ class _VoiceCallScreenState extends ConsumerState<VoiceCallScreen>
                     ),
                   ),
 
-                  // Hold hint text
+                  // Dynamic Action Hint
                   Padding(
                     padding: const EdgeInsets.only(bottom: 12),
                     child: Text(
-                      'Hold button while speaking, release to send',
+                      isListening
+                          ? '🎙️ Juhi is listening! Tap to send (or release)'
+                          : isProcessing
+                              ? '✨ Juhi is thinking...'
+                              : isSpeaking
+                                  ? '💕 Juhi is speaking... (Tap mic to speak)'
+                                  : 'Tap to speak (or hold while talking)',
                       style: TextStyle(
-                        color: AppTheme.textSecondary.withValues(alpha: 0.6),
-                        fontSize: 11.5,
+                        color: isListening
+                            ? const Color(0xFF00E5FF)
+                            : AppTheme.textSecondary.withValues(alpha: 0.75),
+                        fontSize: 12,
+                        fontWeight: isListening ? FontWeight.w600 : FontWeight.w400,
                       ),
                     ),
                   ),

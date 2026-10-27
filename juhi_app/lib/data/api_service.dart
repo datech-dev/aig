@@ -263,11 +263,12 @@ class ApiService {
     required String userId,
     required String filePath,
   }) async {
+    final isWav = filePath.toLowerCase().endsWith('.wav');
     final formData = FormData.fromMap({
       'user_id': userId,
       'audio': await MultipartFile.fromFile(
         filePath,
-        filename: 'voice_input.m4a',
+        filename: isWav ? 'voice_input.wav' : 'voice_input.m4a',
       ),
     });
 
