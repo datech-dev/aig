@@ -128,7 +128,7 @@ async def text_to_speech(
         spoken_text = "I'm right here with you, love."
 
     tts_model = model or config.SARVAM_TTS_MODEL or "bulbul:v4-flash"
-    tts_speaker = speaker or config.SARVAM_TTS_SPEAKER or "ishita_enhi_companion"
+    tts_speaker = speaker or config.SARVAM_TTS_SPEAKER or "simran_en_conversation"
     url = f"{config.SARVAM_API_BASE_URL.rstrip('/')}/text-to-speech"
     
     headers = {
