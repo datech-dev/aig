@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../core/theme.dart';
 
+import '../services/analytics_service.dart';
+
 class MainShell extends StatefulWidget {
   final Widget child;
 
@@ -113,7 +115,12 @@ class _MainShellState extends State<MainShell> {
                   child: _NavItem(
                     tab: tab,
                     isSelected: isSelected,
-                    onTap: () => context.go(tab.path),
+                    onTap: () {
+                      if (!isSelected) {
+                        analyticsService.logTabSwitch(_tabs[currentIndex].label, tab.label, i);
+                      }
+                      context.go(tab.path);
+                    },
                   ),
                 );
               }).toList(),

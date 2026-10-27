@@ -6,6 +6,7 @@ import '../../core/theme.dart';
 import '../../core/constants.dart';
 import '../../providers/billing_provider.dart';
 import '../../providers/profile_provider.dart';
+import '../../services/analytics_service.dart';
 
 class StoreScreen extends ConsumerStatefulWidget {
   const StoreScreen({super.key});
@@ -18,6 +19,7 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
   @override
   void initState() {
     super.initState();
+    analyticsService.logStoreViewed();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(billingProvider.notifier).setCallbacks(
             onSuccess: _onPaymentSuccess,

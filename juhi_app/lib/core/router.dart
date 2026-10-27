@@ -10,6 +10,7 @@ import '../screens/store/store_screen.dart';
 import '../screens/memories/memories_screen.dart';
 import '../screens/settings/settings_screen.dart';
 import '../widgets/main_shell.dart';
+import 'analytics_navigator_observer.dart';
 
 final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
 
@@ -19,6 +20,7 @@ final routerProvider = Provider<GoRouter>((ref) {
   return GoRouter(
     navigatorKey: rootNavigatorKey,
     initialLocation: '/splash',
+    observers: [AnalyticsNavigatorObserver()],
     redirect: (context, state) {
       final isLoading = authState.isLoading;
       final isLoggedIn = authState.valueOrNull ?? false;
@@ -43,10 +45,12 @@ final routerProvider = Provider<GoRouter>((ref) {
     },
     routes: [
       GoRoute(
+        name: 'splash',
         path: '/splash',
         builder: (context, state) => const SplashScreen(),
       ),
       GoRoute(
+        name: 'onboarding',
         path: '/onboarding',
         builder: (context, state) => const OnboardingScreen(),
       ),
@@ -54,22 +58,27 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state, child) => MainShell(child: child),
         routes: [
           GoRoute(
+            name: 'chat',
             path: '/chat',
             builder: (context, state) => const ChatScreen(),
           ),
           GoRoute(
+            name: 'profile',
             path: '/profile',
             builder: (context, state) => const ProfileScreen(),
           ),
           GoRoute(
+            name: 'store',
             path: '/store',
             builder: (context, state) => const StoreScreen(),
           ),
           GoRoute(
+            name: 'memories',
             path: '/memories',
             builder: (context, state) => const MemoriesScreen(),
           ),
           GoRoute(
+            name: 'settings',
             path: '/settings',
             builder: (context, state) => const SettingsScreen(),
           ),

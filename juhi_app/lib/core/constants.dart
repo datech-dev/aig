@@ -19,6 +19,8 @@ class AppConstants {
   static const String apiTestNotification = '/api/notifications/test';
   static const String apiProactiveCheck = '/api/proactive/check';
   static const String apiRelationshipLevel = '/api/relationship/level';
+  static const String apiAnalyticsEvent = '/api/analytics/event';
+  static const String apiAnalyticsBatch = '/api/analytics/events/batch';
 
   // ── Storage Keys ──────────────────────────────────────────────────────────
   static const String keyUserId = 'user_id';

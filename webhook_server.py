@@ -495,9 +495,14 @@ async def handle_verify_payment(request):
 
 
 async def handle_api_analytics_event(request):
-    """API endpoint to record client-side user behavior events from Android app."""
+    """API endpoint to record client-side user behavior events from Android app (single or batch)."""
     try:
         data = await request.json()
+        # Support batch payload if "events" list is supplied
+        if "events" in data and isinstance(data["events"], list):
+            success = database.log_user_analytics_events_batch(data["events"])
+            return web.json_response({"success": bool(success), "count": len(data["events"])})
+
         user_id = data.get("user_id")
         event_name = data.get("event_name")
         event_category = data.get("event_category", "engagement")
@@ -507,16 +512,31 @@ async def handle_api_analytics_event(request):
         if not user_id or not event_name:
             return web.json_response({"success": False, "error": "Missing user_id or event_name"}, status=400)
             
-        database.log_user_analytics_event(
+        success = database.log_user_analytics_event(
             user_id=int(user_id),
             event_name=str(event_name),
             event_category=str(event_category),
             platform=str(platform),
             metadata=metadata
         )
-        return web.json_response({"success": True})
+        return web.json_response({"success": bool(success)})
     except Exception as e:
         logger.error(f"Error in handle_api_analytics_event: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+
+async def handle_api_analytics_batch(request):
+    """Dedicated API endpoint to record batch of events efficiently."""
+    try:
+        data = await request.json()
+        events = data.get("events") if isinstance(data, dict) else (data if isinstance(data, list) else None)
+        if not events or not isinstance(events, list):
+            return web.json_response({"success": False, "error": "Expected a list of events"}, status=400)
+            
+        success = database.log_user_analytics_events_batch(events)
+        return web.json_response({"success": bool(success), "received": len(events)})
+    except Exception as e:
+        logger.error(f"Error in handle_api_analytics_batch: {e}")
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
 
@@ -555,7 +575,31 @@ async def handle_admin_analytics_user_journey(request):
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
 
-async def handle_admin_export_data(request):
+async def handle_admin_analytics_live_feed(request):
+    """API endpoint returning live stream of events with pagination, category filter, and search."""
+    try:
+        limit = int(request.query.get("limit", 50))
+        offset = int(request.query.get("offset", 0))
+        user_id = request.query.get("user_id")
+        event_name = request.query.get("event_name")
+        event_category = request.query.get("event_category")
+        search = request.query.get("search")
+        
+        feed = database.get_live_analytics_events(
+            limit=limit,
+            offset=offset,
+            user_id=int(user_id) if user_id else None,
+            event_name=event_name,
+            event_category=event_category,
+            search=search
+        )
+        return web.json_response({"success": True, "data": feed})
+    except Exception as e:
+        logger.error(f"Error in handle_admin_analytics_live_feed: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+
+async def handle_admin_export_users_csv(request):
     """Downloads CSV report of all user behaviors and message stats."""
     try:
         filepath, count = database.export_user_behavior_csv()
@@ -570,297 +614,41 @@ async def handle_admin_export_data(request):
             )
         return web.json_response({"error": "File not found"}, status=404)
     except Exception as e:
-        logger.error(f"Error exporting data: {e}")
+        logger.error(f"Error exporting user behavior data: {e}")
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def handle_admin_export_events_csv(request):
+    """Downloads CSV report of all raw user behavior events."""
+    try:
+        filepath, count = database.export_user_analytics_events_csv()
+        import os
+        if os.path.exists(filepath):
+            with open(filepath, "r", encoding="utf-8") as f:
+                content = f.read()
+            return web.Response(
+                text=content,
+                content_type="text/csv",
+                headers={"Content-Disposition": f'attachment; filename="{os.path.basename(filepath)}"'}
+            )
+        return web.json_response({"error": "File not found"}, status=404)
+    except Exception as e:
+        logger.error(f"Error exporting events data: {e}")
         return web.json_response({"error": str(e)}, status=500)
 
 
 async def handle_admin_analytics_dashboard(request):
-    """Renders a sleek HTML analytics dashboard for viewing user behavior in any browser."""
-    html_content = """<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Juhi AI - User Behavior & Conversion Analytics</title>
-  <style>
-    :root {
-      --bg: #0d0f17;
-      --card-bg: #161b26;
-      --border: #232d3f;
-      --pink: #ff2d87;
-      --pink-glow: rgba(255, 45, 135, 0.25);
-      --purple: #8b5cf6;
-      --text: #f1f5f9;
-      --muted: #94a3b8;
-      --green: #10b981;
-      --yellow: #f59e0b;
-      --red: #ef4444;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
-    body { background: var(--bg); color: var(--text); padding: 24px; }
-    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
-    h1 { font-size: 24px; display: flex; align-items: center; gap: 10px; }
-    .badge { background: var(--pink-glow); color: var(--pink); border: 1px solid var(--pink); padding: 4px 10px; border-radius: 20px; font-size: 13px; }
-    .btn { background: var(--pink); color: white; border: none; padding: 8px 16px; border-radius: 8px; cursor: pointer; text-decoration: none; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
-    .btn:hover { opacity: 0.9; }
-    .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
-    .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
-    .kpi-title { font-size: 13px; color: var(--muted); text-transform: uppercase; margin-bottom: 6px; }
-    .kpi-val { font-size: 28px; font-weight: 700; color: #fff; }
-    .funnel-container { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 24px; }
-    .funnel-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 12px; text-align: center; }
-    .funnel-step { background: #0f131d; border: 1px solid var(--border); border-radius: 8px; padding: 16px; position: relative; }
-    .funnel-step h4 { font-size: 14px; color: var(--muted); margin-bottom: 8px; }
-    .funnel-step .num { font-size: 24px; font-weight: bold; color: var(--pink); }
-    .funnel-arrow { font-size: 18px; color: var(--muted); margin-top: 6px; }
-    .table-container { background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
-    table { width: 100%; border-collapse: collapse; font-size: 14px; text-align: left; }
-    th { background: #0f131d; padding: 14px 16px; color: var(--muted); font-weight: 600; border-bottom: 1px solid var(--border); }
-    td { padding: 14px 16px; border-bottom: 1px solid #1a2232; }
-    tr:hover { background: rgba(255, 45, 135, 0.04); }
-    .tag { padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
-    .tag-green { background: rgba(16, 185, 129, 0.15); color: var(--green); }
-    .tag-yellow { background: rgba(245, 158, 11, 0.15); color: var(--yellow); }
-    .tag-red { background: rgba(239, 68, 68, 0.15); color: var(--red); }
-    .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 1000; align-items: center; justify-content: center; padding: 20px; }
-    .modal-content { background: var(--card-bg); border: 1px solid var(--border); border-radius: 14px; width: 100%; max-width: 800px; max-height: 85vh; overflow-y: auto; padding: 24px; }
-    .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
-    .chat-bubble { padding: 10px 14px; border-radius: 10px; margin-bottom: 8px; max-width: 80%; font-size: 14px; line-height: 1.4; }
-    .bubble-user { background: #ff2d87; color: white; margin-left: auto; }
-    .bubble-ai { background: #222b3d; color: #f1f5f9; margin-right: auto; border: 1px solid #2e3a52; }
-    .bubble-meta { font-size: 11px; color: rgba(255,255,255,0.6); margin-top: 4px; text-align: right; }
-    .close-btn { background: none; border: none; color: var(--muted); font-size: 22px; cursor: pointer; }
-  </style>
-</head>
-<body>
+    """Serves the rich user behavior tracking dashboard webpage."""
+    try:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        html_path = os.path.join(base_dir, 'analytics.html')
+        if os.path.exists(html_path):
+            return web.FileResponse(html_path)
+        return web.Response(text="<h1>Analytics dashboard template (analytics.html) not found.</h1>", status=404, content_type="text/html")
+    except Exception as e:
+        logger.error(f"Error serving analytics dashboard: {e}")
+        return web.Response(text=f"<h1>Error loading analytics: {e}</h1>", status=500, content_type="text/html")
 
-  <div class="header">
-    <div>
-      <h1>💖 Juhi AI Companion <span class="badge">Live Analytics</span></h1>
-      <p style="color: var(--muted); font-size: 14px; margin-top: 4px;">Track user messages, conversation transcripts, and payment conversions.</p>
-    </div>
-    <div style="display: flex; gap: 10px;">
-      <a href="/api/admin/export-data" class="btn">📥 Export CSV</a>
-      <button onclick="loadDashboard()" class="btn" style="background: #334155;">🔄 Refresh</button>
-    </div>
-  </div>
-
-  <div class="kpi-grid">
-    <div class="card">
-      <div class="kpi-title">Total Users</div>
-      <div class="kpi-val" id="kpi-users">-</div>
-    </div>
-    <div class="card">
-      <div class="kpi-title">Total Messages Sent</div>
-      <div class="kpi-val" id="kpi-user-msgs" style="color: var(--pink);">-</div>
-    </div>
-    <div class="card">
-      <div class="kpi-title">AI Replies Generated</div>
-      <div class="kpi-val" id="kpi-ai-replies" style="color: var(--purple);">-</div>
-    </div>
-    <div class="card">
-      <div class="kpi-title">Avg Msgs / User</div>
-      <div class="kpi-val" id="kpi-avg">-</div>
-    </div>
-    <div class="card">
-      <div class="kpi-title">Free Trial Limit</div>
-      <div class="kpi-val" style="color: var(--yellow);">50 msgs</div>
-    </div>
-    <div class="card">
-      <div class="kpi-title">Total Revenue</div>
-      <div class="kpi-val" id="kpi-rev" style="color: var(--green);">₹0</div>
-    </div>
-  </div>
-
-  <div class="funnel-container">
-    <h3 style="font-size: 16px; margin-bottom: 4px;">🎯 Monetization & Paywall Conversion Funnel</h3>
-    <p style="font-size: 13px; color: var(--muted);">Track user progression from free trial to paying subscribers.</p>
-    <div class="funnel-grid">
-      <div class="funnel-step">
-        <h4>1. Reached 50-Msg Paywall</h4>
-        <div class="num" id="funnel-paywall">-</div>
-      </div>
-      <div class="funnel-step">
-        <h4>2. Tried to Pay (Clicked Checkout)</h4>
-        <div class="num" id="funnel-tried">-</div>
-        <div class="funnel-arrow" id="funnel-click-rate">0% click rate</div>
-      </div>
-      <div class="funnel-step">
-        <h4>3. Paid & Subscribed</h4>
-        <div class="num" id="funnel-paid" style="color: var(--green);">-</div>
-        <div class="funnel-arrow" id="funnel-conv-rate" style="color: var(--green);">0% conversion</div>
-      </div>
-    </div>
-  </div>
-
-  <div class="table-container">
-    <div style="padding: 16px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center;">
-      <h3 style="font-size: 16px;">👥 User Behavior & Engagement Logs</h3>
-      <input type="text" id="searchInput" onkeyup="filterUsers()" placeholder="Search user ID or name..." style="background: #0f131d; border: 1px solid var(--border); color: #fff; padding: 6px 12px; border-radius: 6px; font-size: 13px;">
-    </div>
-    <table id="usersTable">
-      <thead>
-        <tr>
-          <th>User ID</th>
-          <th>Name / Nickname</th>
-          <th>Messages Sent</th>
-          <th>Free Used (Limit 50)</th>
-          <th>Hit Paywall?</th>
-          <th>Tried to Pay?</th>
-          <th>Status</th>
-          <th>Last Active</th>
-          <th>Actions</th>
-        </tr>
-      </thead>
-      <tbody id="userRows">
-        <tr><td colspan="9" style="text-align:center; color: var(--muted);">Loading user behavior data...</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <!-- User Chat & Event Modal -->
-  <div id="userModal" class="modal">
-    <div class="modal-content">
-      <div class="modal-header">
-        <div>
-          <h3 id="modalTitle">User Journey</h3>
-          <p id="modalSub" style="font-size: 12px; color: var(--muted); margin-top: 2px;"></p>
-        </div>
-        <button class="close-btn" onclick="closeModal()">&times;</button>
-      </div>
-      
-      <h4 style="margin: 12px 0 8px; font-size: 14px; color: var(--pink);">💬 Complete Conversation Transcript</h4>
-      <div id="modalChatHistory" style="background: #0b0e14; border: 1px solid var(--border); border-radius: 8px; padding: 14px; max-height: 350px; overflow-y: auto; margin-bottom: 16px;"></div>
-
-      <h4 style="margin: 12px 0 8px; font-size: 14px; color: var(--purple);">⚡ Recorded Behavior & Payment Events</h4>
-      <div id="modalEventsHistory" style="background: #0b0e14; border: 1px solid var(--border); border-radius: 8px; padding: 14px; max-height: 200px; overflow-y: auto;"></div>
-    </div>
-  </div>
-
-  <script>
-    let allUsers = [];
-
-    async function loadDashboard() {
-      try {
-        const [ovRes, uRes] = await Promise.all([
-          fetch('/api/admin/analytics/overview'),
-          fetch('/api/admin/analytics/users?limit=1000')
-        ]);
-        const ov = (await ovRes.json()).data;
-        const uData = await uRes.json();
-        allUsers = uData.users || [];
-
-        document.getElementById('kpi-users').textContent = ov.total_users;
-        document.getElementById('kpi-user-msgs').textContent = ov.total_user_messages;
-        document.getElementById('kpi-ai-replies').textContent = ov.total_ai_replies;
-        document.getElementById('kpi-avg').textContent = ov.avg_messages_per_user;
-        document.getElementById('kpi-rev').textContent = '₹' + ov.total_revenue_inr;
-
-        document.getElementById('funnel-paywall').textContent = ov.funnel.users_reached_paywall;
-        document.getElementById('funnel-tried').textContent = ov.funnel.users_tried_to_pay;
-        document.getElementById('funnel-paid').textContent = ov.funnel.users_paid_successfully;
-        document.getElementById('funnel-click-rate').textContent = ov.funnel.paywall_to_pay_click_percent + '% click rate';
-        document.getElementById('funnel-conv-rate').textContent = ov.funnel.checkout_conversion_percent + '% conversion';
-
-        renderUserTable(allUsers);
-      } catch (err) {
-        console.error('Error loading analytics:', err);
-      }
-    }
-
-    function renderUserTable(users) {
-      const tbody = document.getElementById('userRows');
-      if (!users.length) {
-        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color: var(--muted);">No users found.</td></tr>';
-        return;
-      }
-      tbody.innerHTML = users.map(u => {
-        const paywallTag = u.hit_paywall ? '<span class="tag tag-red">YES (50+)</span>' : '<span class="tag tag-green">NO</span>';
-        const triedPayTag = u.tried_to_pay ? '<span class="tag tag-yellow">YES (' + u.payment_attempts + 'x)</span>' : '<span class="tag" style="background:#1e293b; color: #94a3b8;">NO</span>';
-        const statusTag = u.is_subscribed ? '<span class="tag tag-green">SUBSCRIBED</span>' : '<span class="tag tag-yellow">FREE TRIAL</span>';
-        const lastActive = u.last_active_at ? u.last_active_at.replace('T', ' ').substring(0, 19) : (u.registered_at ? u.registered_at.substring(0, 10) : '-');
-
-        return `<tr>
-          <td><strong>${u.user_id}</strong></td>
-          <td>${u.first_name || u.username || 'User'}</td>
-          <td><strong style="color:var(--pink);">${u.messages_sent || 0}</strong></td>
-          <td>${u.free_messages_used || 0} / 50</td>
-          <td>${paywallTag}</td>
-          <td>${triedPayTag}</td>
-          <td>${statusTag}</td>
-          <td style="font-size:12px; color:var(--muted);">${lastActive}</td>
-          <td>
-            <button onclick="viewUserJourney(${u.user_id})" class="btn" style="padding: 4px 10px; font-size: 12px;">🔍 View Chat</button>
-          </td>
-        </tr>`;
-      }).join('');
-    }
-
-    function filterUsers() {
-      const q = document.getElementById('searchInput').value.toLowerCase();
-      const filtered = allUsers.filter(u => 
-        String(u.user_id).includes(q) || 
-        (u.first_name && u.first_name.toLowerCase().includes(q)) || 
-        (u.username && u.username.toLowerCase().includes(q))
-      );
-      renderUserTable(filtered);
-    }
-
-    async function viewUserJourney(userId) {
-      try {
-        const res = await fetch(`/api/admin/analytics/user/${userId}`);
-        const data = await res.json();
-        const j = data.journey;
-
-        document.getElementById('modalTitle').textContent = `User ${j.user_info.telegram_id || userId} (${j.user_info.first_name || 'User'})`;
-        document.getElementById('modalSub').textContent = `Messages: ${j.stats.total_messages} sent, ${j.stats.total_replies} replies | Free Used: ${j.stats.free_messages_used}/50 | Paid: ${j.stats.has_active_subscription ? 'YES' : 'NO'}`;
-
-        const chatBox = document.getElementById('modalChatHistory');
-        if (!j.chat_history.length) {
-          chatBox.innerHTML = '<p style="color:var(--muted); text-align:center;">No chat messages yet.</p>';
-        } else {
-          chatBox.innerHTML = j.chat_history.map(m => `
-            <div class="chat-bubble ${m.role === 'user' ? 'bubble-user' : 'bubble-ai'}">
-              <strong>${m.role === 'user' ? 'User' : 'Juhi'}:</strong> ${m.message}
-              <div class="bubble-meta">${m.timestamp || ''}</div>
-            </div>
-          `).join('');
-          chatBox.scrollTop = chatBox.scrollHeight;
-        }
-
-        const evBox = document.getElementById('modalEventsHistory');
-        if (!j.analytics_events.length) {
-          evBox.innerHTML = '<p style="color:var(--muted); text-align:center;">No behavior events recorded yet.</p>';
-        } else {
-          evBox.innerHTML = j.analytics_events.map(e => `
-            <div style="font-size: 12px; padding: 6px 0; border-bottom: 1px solid #1a2232; display: flex; justify-content: space-between;">
-              <span><strong>${e.event_name}</strong> (${e.event_category})</span>
-              <span style="color: var(--muted);">${e.created_at}</span>
-            </div>
-          `).join('');
-        }
-
-        document.getElementById('userModal').style.display = 'flex';
-      } catch (err) {
-        alert('Error loading user journey: ' + err);
-      }
-    }
-
-    function closeModal() {
-      document.getElementById('userModal').style.display = 'none';
-    }
-
-    window.onclick = function(event) {
-      const modal = document.getElementById('userModal');
-      if (event.target === modal) closeModal();
-    }
-
-    loadDashboard();
-  </script>
-</body>
-</html>
-"""
-    return web.Response(text=html_content, content_type="text/html")
 
 
 async def handle_get_config(request):
@@ -2124,12 +1912,18 @@ async def start_webhook_server(application, port=8080):
     app.router.add_get('/checkout/instamojo/mock_ui', handle_instamojo_mock_ui)
     app.router.add_get('/checkout', handle_checkout_page)
     # Admin Analytics & User Behavior Tracking Routes
+    app.router.add_get('/analytics', handle_admin_analytics_dashboard)
     app.router.add_get('/admin/analytics', handle_admin_analytics_dashboard)
+    app.router.add_get('/records', handle_admin_analytics_dashboard)
     app.router.add_get('/api/admin/analytics/overview', handle_admin_analytics_overview)
     app.router.add_get('/api/admin/analytics/users', handle_admin_analytics_users)
     app.router.add_get('/api/admin/analytics/user/{user_id}', handle_admin_analytics_user_journey)
+    app.router.add_get('/api/admin/analytics/live-feed', handle_admin_analytics_live_feed)
+    app.router.add_get('/api/admin/analytics/export-users-csv', handle_admin_export_users_csv)
+    app.router.add_get('/api/admin/analytics/export-events', handle_admin_export_events_csv)
     app.router.add_get('/api/admin/export-data', handle_admin_export_data)
     app.router.add_post('/api/analytics/event', handle_api_analytics_event)
+    app.router.add_post('/api/analytics/events/batch', handle_api_analytics_batch)
     
     app.router.add_post('/api/create-order', handle_create_order)
     app.router.add_post('/api/verify-payment', handle_verify_payment)

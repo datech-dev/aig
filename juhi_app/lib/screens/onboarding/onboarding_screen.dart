@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/theme.dart';
 import '../../providers/auth_provider.dart';
+import '../../services/analytics_service.dart';
 
 class OnboardingScreen extends ConsumerStatefulWidget {
   const OnboardingScreen({super.key});
@@ -44,6 +45,12 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    analyticsService.logOnboardingStep(0, _pages[0].title);
+  }
+
+  @override
   void dispose() {
     _pageController.dispose();
     _nameController.dispose();
@@ -65,7 +72,10 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
 
     if (mounted) {
       setState(() => _isLoading = false);
-      if (success) context.go('/chat');
+      if (success) {
+        analyticsService.logOnboardingComplete(name);
+        context.go('/chat');
+      }
     }
   }
 
@@ -87,7 +97,11 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           child: PageView(
             controller: _pageController,
             physics: const NeverScrollableScrollPhysics(),
-            onPageChanged: (i) => setState(() => _currentPage = i),
+            onPageChanged: (i) {
+              setState(() => _currentPage = i);
+              final title = i < _pages.length ? _pages[i].title : 'Enter Nickname';
+              analyticsService.logOnboardingStep(i, title);
+            },
             children: [
               // ── Pages 0–2: Feature Showcase ──────────────────────────────
               ..._pages.asMap().entries.map((e) => _FeaturePage(

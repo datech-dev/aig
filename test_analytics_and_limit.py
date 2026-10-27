@@ -61,5 +61,43 @@ class TestAnalyticsAndLimit(unittest.TestCase):
             self.assertIn("messages_sent", content)
             self.assertIn("tried_to_pay", content)
 
+    def test_06_batch_event_logging_and_live_feed(self):
+        test_uid = 99999903
+        database.setup_user(test_uid, "batch_user", "BatchTester")
+        
+        events = [
+            {"user_id": test_uid, "event_name": "app_open", "event_category": "lifecycle", "metadata": {"session_id": "sess_1"}},
+            {"user_id": test_uid, "event_name": "screen_view", "event_category": "navigation", "metadata": {"screen_name": "chat_screen"}},
+            {"user_id": test_uid, "event_name": "mode_toggled", "event_category": "companion", "metadata": {"chat_mode": "intimate"}},
+            {"user_id": test_uid, "event_name": "plan_selected", "event_category": "monetization", "metadata": {"plan_type": "chat_pass_1week", "amount": 199}},
+        ]
+        ok = database.log_user_analytics_events_batch(events)
+        self.assertTrue(ok)
+
+        feed = database.get_live_analytics_events(limit=10, user_id=test_uid)
+        self.assertGreaterEqual(feed["total_count"], 4)
+        event_names = [e["event_name"] for e in feed["events"]]
+        self.assertIn("app_open", event_names)
+        self.assertIn("mode_toggled", event_names)
+        self.assertIn("plan_selected", event_names)
+
+        # Category filter test
+        nav_feed = database.get_live_analytics_events(limit=10, user_id=test_uid, event_category="navigation")
+        self.assertTrue(all(e["event_category"] == "navigation" for e in nav_feed["events"]))
+
+        # Search test
+        search_feed = database.get_live_analytics_events(limit=10, user_id=test_uid, search="intimate")
+        self.assertGreaterEqual(search_feed["total_count"], 1)
+
+    def test_07_export_raw_events_csv(self):
+        filepath, count = database.export_user_analytics_events_csv()
+        self.assertTrue(os.path.exists(filepath))
+        self.assertTrue(count >= 0)
+        with open(filepath, "r", encoding="utf-8") as f:
+            header = f.readline()
+            self.assertIn("event_name", header)
+            self.assertIn("event_category", header)
+
 if __name__ == "__main__":
     unittest.main()
+

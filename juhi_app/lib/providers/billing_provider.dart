@@ -4,6 +4,7 @@ import 'package:razorpay_flutter/razorpay_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../data/api_service.dart';
 import '../data/local_storage.dart';
+import '../services/analytics_service.dart';
 import 'profile_provider.dart';
 
 // ── Billing State ────────────────────────────────────────────────────────────
@@ -84,6 +85,12 @@ class BillingNotifier extends StateNotifier<BillingState> {
     required String planTitle,
     required int amountInr,
   }) async {
+    analyticsService.logPlanSelected(
+      planType: planType,
+      planTitle: planTitle,
+      amountInr: amountInr,
+    );
+
     final userId = await LocalStorage.getUserId();
     if (userId == null) {
       state = state.copyWith(
@@ -118,6 +125,13 @@ class BillingNotifier extends StateNotifier<BillingState> {
       final gateway = orderData['gateway']?.toString() ?? 'razorpay';
       final rzpKey = orderData['key']?.toString() ?? '';
       final payUrl = orderData['pay_url']?.toString();
+
+      analyticsService.logCheckoutInitiated(
+        orderId: orderId,
+        planType: planType,
+        amountPaise: amountPaise,
+        gateway: gateway,
+      );
 
       // If Instamojo / Web Gateway URL provided
       if (gateway == 'instamojo' || (payUrl != null && payUrl.isNotEmpty)) {
@@ -204,6 +218,12 @@ class BillingNotifier extends StateNotifier<BillingState> {
       // Refresh profile so updated subscription / image credits reflect immediately
       await _ref.read(profileProvider.notifier).refresh();
 
+      analyticsService.logPaymentSuccess(
+        orderId: orderId,
+        paymentId: paymentId,
+        planType: planType,
+      );
+
       final successMsg = _getSuccessMessage(planType);
       state = state.copyWith(
         isProcessing: false,
@@ -215,7 +235,7 @@ class BillingNotifier extends StateNotifier<BillingState> {
       _onSuccessCallback?.call(planType);
     } catch (e) {
       debugPrint('[BillingNotifier] Verification error: $e');
-      final err = 'Payment received but verification had an issue. Refreshing profile...';
+      const err = 'Payment received but verification had an issue. Refreshing profile...';
       state = state.copyWith(
         isProcessing: false,
         clearActivePlan: true,
@@ -235,6 +255,10 @@ class BillingNotifier extends StateNotifier<BillingState> {
     debugPrint(
         '[BillingNotifier] Payment failed: code=${response.code}, message=${response.message}');
     final msg = response.message ?? 'Payment was cancelled or failed.';
+    analyticsService.logPaymentFailed(
+      orderId: _pendingOrderId,
+      reason: msg,
+    );
     state = state.copyWith(
       isProcessing: false,
       clearActivePlan: true,
@@ -248,6 +272,11 @@ class BillingNotifier extends StateNotifier<BillingState> {
 
   void _handleExternalWallet(ExternalWalletResponse response) {
     debugPrint('[BillingNotifier] External wallet: ${response.walletName}');
+    analyticsService.logEvent(
+      'payment_external_wallet_selected',
+      category: 'monetization',
+      metadata: {'wallet_name': response.walletName},
+    );
   }
 
   String _getSuccessMessage(String planType) {

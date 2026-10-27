@@ -7,6 +7,7 @@ import '../../core/theme.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/notification_provider.dart';
 import '../../providers/chat_provider.dart';
+import '../../services/analytics_service.dart';
 
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
@@ -79,9 +80,10 @@ class SettingsScreen extends ConsumerWidget {
                           subtitle:
                               'Morning greetings, sweet nothings & late night wishes',
                           value: notifState.proactiveEnabled,
-                          onChanged: (val) => ref
-                              .read(notificationProvider.notifier)
-                              .toggleProactive(val),
+                          onChanged: (val) {
+                            analyticsService.logSettingToggled('proactive_notifications', val);
+                            ref.read(notificationProvider.notifier).toggleProactive(val);
+                          },
                         ),
                         _SettingsToggleItem(
                           icon: Icons.volume_up_rounded,
@@ -89,9 +91,10 @@ class SettingsScreen extends ConsumerWidget {
                           subtitle:
                               'Play audio chime and gentle vibration for alerts',
                           value: notifState.soundEnabled,
-                          onChanged: (val) => ref
-                              .read(notificationProvider.notifier)
-                              .toggleSound(val),
+                          onChanged: (val) {
+                            analyticsService.logSettingToggled('sound_enabled', val);
+                            ref.read(notificationProvider.notifier).toggleSound(val);
+                          },
                         ),
                         _SettingsItem(
                           icon: Icons.mark_chat_unread_rounded,
@@ -109,6 +112,7 @@ class SettingsScreen extends ConsumerWidget {
                                 )
                               : null,
                           onTap: () async {
+                            analyticsService.logEvent('test_notification_clicked', category: 'settings');
                             await ref
                                 .read(notificationProvider.notifier)
                                 .sendTestNotification();
@@ -292,6 +296,9 @@ class SettingsScreen extends ConsumerWidget {
               Navigator.pop(ctx);
               final success =
                   await ref.read(chatProvider.notifier).clearChatHistory();
+              if (success) {
+                analyticsService.logChatCleared();
+              }
               if (context.mounted) {
                 HapticFeedback.mediumImpact();
                 ScaffoldMessenger.of(context).showSnackBar(

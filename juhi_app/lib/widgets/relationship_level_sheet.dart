@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/constants.dart';
 import '../core/theme.dart';
 import '../providers/profile_provider.dart';
+import '../services/analytics_service.dart';
 
 class RelationshipLevelSheet extends ConsumerWidget {
   final int currentLevel;
@@ -145,6 +146,8 @@ class RelationshipLevelSheet extends ConsumerWidget {
                         // Capture ScaffoldMessenger before popping modal
                         final messenger = ScaffoldMessenger.of(context);
                         Navigator.pop(context);
+
+                        analyticsService.logRelationshipStageSelected(levelNum, title);
 
                         final success = await ref
                             .read(profileProvider.notifier)

@@ -11,3 +11,4 @@ assets/*.apk
 assets/generated/
 test_girlfriend.db
 gifs/giphy_*.gif
+scratch/

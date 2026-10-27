@@ -215,6 +215,48 @@ class ApiService {
     );
     return response.data as Map<String, dynamic>;
   }
+
+  // ── Analytics & Behavior Telemetry ─────────────────────────────────────────
+  Future<bool> sendAnalyticsEvent({
+    required String userId,
+    required String eventName,
+    String category = 'engagement',
+    String platform = 'android_app',
+    Map<String, dynamic>? metadata,
+  }) async {
+    try {
+      final response = await _dio.post(
+        AppConstants.apiAnalyticsEvent,
+        data: {
+          'user_id': userId,
+          'event_name': eventName,
+          'event_category': category,
+          'platform': platform,
+          'metadata': metadata ?? {},
+        },
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      // ignore: avoid_print
+      print('[Analytics API ERR] Failed to log $eventName: $e');
+      return false;
+    }
+  }
+
+  Future<bool> sendAnalyticsBatch(List<Map<String, dynamic>> events) async {
+    if (events.isEmpty) return true;
+    try {
+      final response = await _dio.post(
+        AppConstants.apiAnalyticsBatch,
+        data: {'events': events},
+      );
+      return response.statusCode == 200;
+    } catch (e) {
+      // ignore: avoid_print
+      print('[Analytics Batch API ERR] Failed to send ${events.length} events: $e');
+      return false;
+    }
+  }
 }
 
 // Singleton instance

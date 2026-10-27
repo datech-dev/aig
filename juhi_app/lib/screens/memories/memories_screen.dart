@@ -7,6 +7,7 @@ import '../../core/theme.dart';
 import '../../data/api_service.dart';
 import '../../data/local_storage.dart';
 import '../../models/memory_item.dart';
+import '../../services/analytics_service.dart';
 
 final _memoriesProvider = FutureProvider<List<MemoryItem>>((ref) async {
   final userId = await LocalStorage.getUserId();
@@ -87,6 +88,7 @@ class _MemoriesScreenState extends ConsumerState<MemoriesScreen> {
               final userId = await LocalStorage.getUserId();
               if (userId != null) {
                 await apiService.clearMemories(userId);
+                analyticsService.logMemoriesCleared();
                 ref.invalidate(_memoriesProvider);
                 HapticFeedback.mediumImpact();
                 if (context.mounted) {

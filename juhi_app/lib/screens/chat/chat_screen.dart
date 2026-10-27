@@ -9,6 +9,7 @@ import '../../providers/profile_provider.dart';
 import '../../data/local_storage.dart';
 import '../../data/api_service.dart';
 import '../../widgets/relationship_level_sheet.dart';
+import '../../services/analytics_service.dart';
 import 'widgets/message_bubble.dart';
 import 'widgets/typing_indicator.dart';
 import 'widgets/chat_input_bar.dart';
@@ -31,6 +32,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    analyticsService.logEvent('chat_opened', category: 'navigation');
     WidgetsBinding.instance.addPostFrameCallback((_) {
       // Check if Juhi has an unread or due proactive message on opening the chat
       ref
@@ -69,23 +71,41 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   }
 
   Future<void> _sendMessage(String text) async {
+    analyticsService.logMessageSent(
+      length: text.length,
+      words: text.trim().split(RegExp(r'\s+')).length,
+    );
+
     final response = await ref.read(chatProvider.notifier).sendMessage(text);
     _scrollToBottom();
 
     if (response == null) return;
 
     if (response['is_paywall'] == true) {
+      analyticsService.logPaywallShown(freeUsed: 50);
       _showPaywallBottomSheet();
     } else if (response['leveled_up'] == true) {
+      final title = response['new_title'] ?? 'Soulmate';
+      final lvl = response['new_level'] ?? 2;
+      analyticsService.logRelationshipStageSelected(lvl, title);
+
       HapticFeedback.heavyImpact();
       setState(() {
         _showLevelUp = true;
-        _levelUpTitle = response['new_title'] ?? 'Soulmate';
-        _newLevel = response['new_level'] ?? 2;
+        _levelUpTitle = title;
+        _newLevel = lvl;
       });
       await ref.read(profileProvider.notifier).refresh();
       await Future.delayed(const Duration(seconds: 4));
       if (mounted) setState(() => _showLevelUp = false);
+    } else if (response['success'] == true) {
+      final replyText = response['reply']?.toString() ?? '';
+      analyticsService.logAiReplyReceived(
+        length: replyText.length,
+        hasImage: response['has_image'] == true,
+        hasGif: response['has_gif'] == true,
+        remainingFree: response['remaining_free'],
+      );
     }
   }
 
@@ -96,6 +116,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
       backgroundColor: Colors.transparent,
       builder: (ctx) => _PaywallModalSheet(
         onViewPlans: () {
+          analyticsService.logEvent('paywall_view_plans_clicked', category: 'monetization', immediate: true);
           Navigator.pop(ctx);
           context.go('/store');
         },
@@ -104,6 +125,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
   }
 
   Future<void> _showModeSelectorSheet() async {
+    analyticsService.logEvent('companion_mode_sheet_opened', category: 'companion');
     final profile = ref.read(profileProvider).valueOrNull;
     final isIntimate = profile?.isIntimateMode ?? false;
 
@@ -183,6 +205,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                 isSelected: false,
                 onTap: () {
                   Navigator.pop(ctx);
+                  analyticsService.logEvent('relationship_stage_sheet_opened', category: 'companion');
                   RelationshipLevelSheet.show(
                     context,
                     ref,
@@ -205,6 +228,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
     try {
       final data = await apiService.toggleMode(userId);
       if (data['success'] == true) {
+        analyticsService.logModeToggled(data['chat_mode'] ?? 'unknown');
         await ref.read(profileProvider.notifier).refresh();
         if (mounted) {
           final label = data['chat_mode_label'] ?? '';
@@ -375,7 +399,10 @@ class _ChatScreenState extends ConsumerState<ChatScreen>
                       : messages.isEmpty
                           ? _WelcomeMessage(
                               partnerName: profile?.partnerName ?? 'Juhi',
-                              onStarterSelected: (text) => _sendMessage(text),
+                              onStarterSelected: (text) {
+                                analyticsService.logQuickPromptClicked(text);
+                                _sendMessage(text);
+                              },
                             )
                           : ListView.builder(
                               controller: _scrollController,

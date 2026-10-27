@@ -326,9 +326,14 @@ def init_db():
             FOREIGN KEY(user_id) REFERENCES users(telegram_id)
         )
     """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_uae_user_id ON user_analytics_events(user_id, created_at DESC)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_uae_event_name ON user_analytics_events(event_name, created_at DESC)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_uae_created_at ON user_analytics_events(created_at DESC)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_uae_category ON user_analytics_events(event_category, created_at DESC)")
         
     conn.commit()
     conn.close()
+
 
 
 def setup_user(telegram_id, username, first_name):
@@ -2026,8 +2031,132 @@ def log_user_analytics_event(user_id: int, event_name: str, event_category: str 
         return False
 
 
+def log_user_analytics_events_batch(events: list):
+    """Logs a list of analytics events in a single batch transaction for high performance."""
+    if not events:
+        return True
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        rows = []
+        for e in events:
+            uid = e.get("user_id")
+            ename = e.get("event_name")
+            if not uid or not ename:
+                continue
+            cat = e.get("event_category", "engagement")
+            plat = e.get("platform", "android_app")
+            meta = e.get("metadata")
+            meta_str = json.dumps(meta) if meta and isinstance(meta, (dict, list)) else (str(meta) if meta else None)
+            created_at = e.get("created_at")
+            if created_at:
+                rows.append((int(uid), str(ename), str(cat), str(plat), meta_str, str(created_at)))
+            else:
+                rows.append((int(uid), str(ename), str(cat), str(plat), meta_str))
+        
+        if rows:
+            # Check if created_at was provided
+            if len(rows[0]) == 6:
+                cursor.executemany("""
+                    INSERT INTO user_analytics_events (user_id, event_name, event_category, platform, metadata, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, rows)
+            else:
+                cursor.executemany("""
+                    INSERT INTO user_analytics_events (user_id, event_name, event_category, platform, metadata, created_at)
+                    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """, rows)
+            conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        logger.error(f"Error logging batch analytics events: {e}")
+        return False
+
+
+def get_live_analytics_events(limit: int = 100, offset: int = 0, user_id: int = None, event_name: str = None, event_category: str = None, search: str = None):
+    """
+    Returns recent live stream of events with user information, optional filters,
+    and total matched count for pagination.
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    where_clauses = []
+    params = []
+    
+    if user_id:
+        where_clauses.append("e.user_id = ?")
+        params.append(int(user_id))
+    if event_name:
+        where_clauses.append("e.event_name = ?")
+        params.append(str(event_name))
+    if event_category and event_category != "all":
+        where_clauses.append("e.event_category = ?")
+        params.append(str(event_category))
+    if search:
+        s = f"%{search.strip().lower()}%"
+        where_clauses.append("(LOWER(e.event_name) LIKE ? OR LOWER(COALESCE(e.metadata, '')) LIKE ? OR LOWER(COALESCE(u.first_name, '')) LIKE ? OR LOWER(COALESCE(u.username, '')) LIKE ? OR CAST(e.user_id AS TEXT) LIKE ?)")
+        params.extend([s, s, s, s, s])
+        
+    where_sql = ("WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+    
+    # 1. Total count matching filters
+    count_sql = f"""
+        SELECT COUNT(*) as total
+        FROM user_analytics_events e
+        LEFT JOIN users u ON e.user_id = u.telegram_id
+        {where_sql}
+    """
+    cursor.execute(count_sql, params)
+    total_count = cursor.fetchone()["total"] or 0
+    
+    # 2. Paginated rows
+    data_sql = f"""
+        SELECT 
+            e.id, 
+            e.user_id, 
+            e.event_name, 
+            e.event_category, 
+            e.platform, 
+            e.metadata, 
+            e.created_at,
+            u.username,
+            u.first_name
+        FROM user_analytics_events e
+        LEFT JOIN users u ON e.user_id = u.telegram_id
+        {where_sql}
+        ORDER BY e.created_at DESC, e.id DESC
+        LIMIT ? OFFSET ?
+    """
+    data_params = list(params) + [int(limit), int(offset)]
+    cursor.execute(data_sql, data_params)
+    rows = cursor.fetchall()
+    conn.close()
+    
+    events = []
+    for r in rows:
+        d = dict(r)
+        # Parse metadata JSON safely if present
+        meta_parsed = None
+        if d.get("metadata"):
+            try:
+                meta_parsed = json.loads(d["metadata"])
+            except Exception:
+                meta_parsed = d["metadata"]
+        d["metadata_parsed"] = meta_parsed
+        events.append(d)
+        
+    return {
+        "events": events,
+        "total_count": total_count,
+        "limit": limit,
+        "offset": offset
+    }
+
+
 def get_user_behavior_analytics_overview():
-    """Calculates high-level summary KPIs and funnels across all users."""
+    """Calculates comprehensive summary KPIs, funnels, screen popularities, and active user metrics."""
     conn = get_connection()
     cursor = conn.cursor()
     
@@ -2042,25 +2171,44 @@ def get_user_behavior_analytics_overview():
     # 3. Total AI replies generated
     cursor.execute("SELECT COUNT(*) as total_replies FROM chat_history WHERE role = 'assistant'")
     total_ai_replies = cursor.fetchone()["total_replies"] or 0
+
+    # 4. Total recorded events
+    cursor.execute("SELECT COUNT(*) as total_events FROM user_analytics_events")
+    total_events = cursor.fetchone()["total_events"] or 0
     
-    # 4. Paywall funnel metrics
+    # 5. Active users in last 24 hours & 7 days
+    cursor.execute("""
+        SELECT COUNT(DISTINCT user_id) as active_24h
+        FROM user_analytics_events
+        WHERE created_at >= datetime('now', '-24 hours')
+    """)
+    active_24h = cursor.fetchone()["active_24h"] or 0
+
+    cursor.execute("""
+        SELECT COUNT(DISTINCT user_id) as active_7d
+        FROM user_analytics_events
+        WHERE created_at >= datetime('now', '-7 days')
+    """)
+    active_7d = cursor.fetchone()["active_7d"] or 0
+    
+    # 6. Paywall funnel metrics
     # A. Users who used >= 50 messages or had paywall shown
-    cursor.execute("SELECT COUNT(DISTINCT user_id) as c FROM user_analytics_events WHERE event_name = 'paywall_hit'")
+    cursor.execute("SELECT COUNT(DISTINCT user_id) as c FROM user_analytics_events WHERE event_name IN ('paywall_hit', 'paywall_dialog_shown', 'paywall_modal_shown')")
     paywall_hits = cursor.fetchone()["c"] or 0
     
     # B. Users who initiated payment (clicked pay / created order)
-    cursor.execute("SELECT COUNT(DISTINCT user_id) as c FROM user_analytics_events WHERE event_name IN ('pay_initiated', 'payment_order_created', 'pay_button_clicked')")
+    cursor.execute("SELECT COUNT(DISTINCT user_id) as c FROM user_analytics_events WHERE event_name IN ('pay_initiated', 'payment_order_created', 'pay_button_clicked', 'checkout_initiated')")
     pay_initiated_users = cursor.fetchone()["c"] or 0
     
     # C. Users who completed payment
     cursor.execute("SELECT COUNT(DISTINCT user_id) as c FROM user_analytics_events WHERE event_name IN ('payment_success', 'access_unlocked')")
     paid_users = cursor.fetchone()["c"] or 0
     
-    # 5. Total revenue (paid payments)
+    # 7. Total revenue (paid payments)
     cursor.execute("SELECT SUM(amount) as total_paise FROM payments WHERE status = 'SUCCESS'")
     total_revenue_inr = ((cursor.fetchone()["total_paise"] or 0) / 100.0)
     
-    # 6. Top events breakdown
+    # 8. Top events breakdown
     cursor.execute("""
         SELECT event_name, COUNT(*) as count 
         FROM user_analytics_events 
@@ -2068,7 +2216,30 @@ def get_user_behavior_analytics_overview():
         ORDER BY count DESC LIMIT 15
     """)
     events_breakdown = [dict(r) for r in cursor.fetchall()]
-    
+
+    # 9. Events breakdown by category
+    cursor.execute("""
+        SELECT event_category, COUNT(*) as count
+        FROM user_analytics_events
+        GROUP BY event_category
+        ORDER BY count DESC
+    """)
+    category_breakdown = [dict(r) for r in cursor.fetchall()]
+
+    # 10. Top screens viewed
+    cursor.execute("""
+        SELECT 
+            json_extract(metadata, '$.screen_name') as screen,
+            COUNT(*) as count
+        FROM user_analytics_events
+        WHERE event_name = 'screen_view' AND metadata IS NOT NULL
+        GROUP BY screen
+        ORDER BY count DESC
+        LIMIT 10
+    """)
+    top_screens_rows = cursor.fetchall()
+    top_screens = [{"screen": (r["screen"] or "unknown"), "count": r["count"]} for r in top_screens_rows if r["screen"]]
+
     conn.close()
     
     avg_msgs = round(total_user_msgs / max(1, total_users), 1)
@@ -2079,6 +2250,9 @@ def get_user_behavior_analytics_overview():
         "total_users": total_users,
         "total_user_messages": total_user_msgs,
         "total_ai_replies": total_ai_replies,
+        "total_events": total_events,
+        "active_users_24h": max(active_24h, 1 if total_users > 0 else 0),
+        "active_users_7d": max(active_7d, 1 if total_users > 0 else 0),
         "avg_messages_per_user": avg_msgs,
         "free_message_limit": 50,
         "funnel": {
@@ -2090,6 +2264,8 @@ def get_user_behavior_analytics_overview():
         },
         "total_revenue_inr": total_revenue_inr,
         "top_events": events_breakdown,
+        "category_breakdown": category_breakdown,
+        "top_screens": top_screens,
     }
 
 
@@ -2229,6 +2405,48 @@ def export_user_behavior_csv(filepath: str = None):
             writer.writerow(row)
             
     return filepath, len(users)
+
+
+def export_user_analytics_events_csv(filepath: str = None):
+    """Exports all recorded user behavior event logs into a detailed CSV file."""
+    import csv
+    import os
+    from datetime import datetime
+    
+    if not filepath:
+        os.makedirs("assets", exist_ok=True)
+        today = datetime.now().strftime("%Y-%m-%d")
+        filepath = f"assets/user_events_raw_{today}.csv"
+        
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT 
+            e.id, 
+            e.user_id, 
+            COALESCE(u.username, '') as username,
+            COALESCE(u.first_name, '') as first_name,
+            e.event_name, 
+            e.event_category, 
+            e.platform, 
+            COALESCE(e.metadata, '') as metadata, 
+            e.created_at
+        FROM user_analytics_events e
+        LEFT JOIN users u ON e.user_id = u.telegram_id
+        ORDER BY e.created_at DESC
+        LIMIT 50000
+    """)
+    rows = cursor.fetchall()
+    conn.close()
+    
+    fieldnames = ["id", "user_id", "username", "first_name", "event_name", "event_category", "platform", "metadata", "created_at"]
+    with open(filepath, mode="w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for r in rows:
+            writer.writerow(dict(r))
+            
+    return filepath, len(rows)
 
 
 
