@@ -164,10 +164,19 @@ class _FeaturePage extends StatelessWidget {
               ],
             ),
             child: Center(
-              child: Text(
-                page.emoji,
-                style: const TextStyle(fontSize: 64),
-              ),
+              child: page.emoji == '💕'
+                  ? ClipOval(
+                      child: Image.asset(
+                        'assets/images/juhi_avatar.png',
+                        width: 140,
+                        height: 140,
+                        fit: BoxFit.cover,
+                      ),
+                    )
+                  : Text(
+                      page.emoji,
+                      style: const TextStyle(fontSize: 64),
+                    ),
             ),
           )
               .animate()
@@ -267,7 +276,27 @@ class _NameEntryPage extends StatelessWidget {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          const Text('💌', style: TextStyle(fontSize: 72))
+          Container(
+            width: 90,
+            height: 90,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: AppTheme.primaryGradient,
+              boxShadow: [
+                BoxShadow(
+                  color: AppTheme.primary.withValues(alpha: 0.4),
+                  blurRadius: 24,
+                  spreadRadius: 3,
+                ),
+              ],
+            ),
+            child: ClipOval(
+              child: Image.asset(
+                'assets/images/juhi_avatar.png',
+                fit: BoxFit.cover,
+              ),
+            ),
+          )
               .animate()
               .scale(duration: 600.ms, curve: Curves.elasticOut),
 

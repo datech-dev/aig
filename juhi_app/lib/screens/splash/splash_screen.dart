@@ -79,65 +79,31 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                       boxShadow: [
                         BoxShadow(
                           color: AppTheme.primary.withValues(
-                            alpha: 0.3 + _pulseController.value * 0.3,
+                            alpha: 0.35 + _pulseController.value * 0.35,
                           ),
-                          blurRadius: 40 + _pulseController.value * 20,
-                          spreadRadius: 5 + _pulseController.value * 5,
+                          blurRadius: 50 + _pulseController.value * 25,
+                          spreadRadius: 8 + _pulseController.value * 8,
                         ),
                       ],
                     ),
                     child: child,
                   );
                 },
-                child: Container(
-                  width: 140,
-                  height: 140,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF2A0050), Color(0xFF1A0035)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    border: Border.all(
-                      color: AppTheme.primary.withValues(alpha: 0.6),
-                      width: 2.5,
-                    ),
-                  ),
-                  child: const ClipOval(
-                    child: _JuhiAvatarPlaceholder(),
-                  ),
+                child: Image.asset(
+                  'assets/images/juhi_logo.png',
+                  height: 220,
+                  fit: BoxFit.contain,
                 ),
               )
                   .animate()
                   .scale(
-                    begin: const Offset(0.5, 0.5),
+                    begin: const Offset(0.7, 0.7),
                     end: const Offset(1.0, 1.0),
                     duration: 800.ms,
                     curve: Curves.elasticOut,
                   ),
 
-              const SizedBox(height: 32),
-
-              // ── App Name ─────────────────────────────────────────────────
-              ShaderMask(
-                shaderCallback: (bounds) =>
-                    AppTheme.primaryGradient.createShader(bounds),
-                child: const Text(
-                  'Juhi',
-                  style: TextStyle(
-                    fontSize: 52,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.white,
-                    letterSpacing: -1,
-                  ),
-                ),
-              )
-                  .animate(delay: 300.ms)
-                  .fadeIn(duration: 600.ms)
-                  .slideY(begin: 0.3, end: 0),
-
-              const SizedBox(height: 8),
+              const SizedBox(height: 20),
 
               // ── Tagline ───────────────────────────────────────────────────
               Text(
@@ -161,30 +127,6 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                   .fadeIn(duration: 400.ms),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _JuhiAvatarPlaceholder extends StatelessWidget {
-  const _JuhiAvatarPlaceholder();
-
-  @override
-  Widget build(BuildContext context) {
-    return Image.asset(
-      'assets/images/juhi_avatar.png',
-      fit: BoxFit.cover,
-      errorBuilder: (_, __, ___) => Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            colors: [Color(0xFF3D0070), Color(0xFF200040)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
-        child: const Center(
-          child: Text('💕', style: TextStyle(fontSize: 56)),
         ),
       ),
     );
