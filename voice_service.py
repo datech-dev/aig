@@ -215,7 +215,51 @@ async def process_voice_call_turn(
         }
 
     # Step 2: AI Engine generates context-aware, emotional companion response
-    ai_raw_reply = await ai_engine.generate_response(user_id, transcript)
+    try:
+        ai_engine.extract_and_save_user_memories(user_id, transcript)
+    except Exception as mem_err:
+        logger.warning(f"[Voice Call] Memory extraction error: {mem_err}")
+
+    settings = database.get_user_settings(user_id) if hasattr(database, "get_user_settings") else None
+    persona_key = settings.get("active_persona", "juhi") if settings else "juhi"
+    persona = config.PERSONAS.get(persona_key, config.PERSONAS["juhi"]) if hasattr(config, "PERSONAS") else {"name": "Juhi"}
+    xp = settings.get("relationship_xp", 0) if settings else 0
+    u_nick = settings.get("user_nickname", "sweetie") if (settings and settings.get("user_nickname")) else "sweetie"
+    ai_nick = settings.get("ai_nickname", persona.get("name", "Juhi")) if (settings and settings.get("ai_nickname")) else persona.get("name", "Juhi")
+    user_orientation = settings.get("user_orientation", "straight") if settings else "straight"
+
+    chat_mode = database.get_chat_mode(user_id) if hasattr(database, "get_chat_mode") else "normal"
+    memories = database.get_user_memories(user_id) if hasattr(database, "get_user_memories") else []
+    history = database.get_chat_history(user_id, persona_key) if hasattr(database, "get_chat_history") else []
+
+    # Persist user speech transcript in chat history
+    try:
+        if hasattr(database, "add_chat_message"):
+            database.add_chat_message(user_id, persona_key, "user", transcript)
+    except Exception as save_err:
+        logger.warning(f"[Voice Call] Save user speech error: {save_err}")
+
+    ai_raw_reply = await ai_engine.generate_response(
+        persona_key=persona_key,
+        relationship_xp=xp,
+        user_nickname=u_nick,
+        ai_nickname=ai_nick,
+        chat_history=history,
+        user_message=transcript,
+        user_orientation=user_orientation,
+        chat_mode=chat_mode,
+        memories=memories,
+        user_id=user_id
+    )
+
+    # Persist AI voice reply in chat history
+    try:
+        if hasattr(database, "add_chat_message"):
+            database.add_chat_message(user_id, persona_key, "assistant", ai_raw_reply)
+        if hasattr(database, "add_xp"):
+            database.add_xp(user_id, amount=10)
+    except Exception as save_err:
+        logger.warning(f"[Voice Call] Save assistant speech error: {save_err}")
     
     # Step 3: Text-to-Speech via Bulbul v4
     audio_b64, audio_fmt = await text_to_speech(ai_raw_reply)
