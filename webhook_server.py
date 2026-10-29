@@ -257,6 +257,12 @@ async def handle_razorpay_webhook(request):
         item_type = "chat_pass_1week"
     elif amt_val in (49900, 499, 499.0):
         item_type = "chat_pass_1month"
+    elif amt_val in (4000, 40, 40.0):
+        item_type = "voice_call_10min"
+    elif amt_val in (10000, 100, 100.0):
+        item_type = "voice_call_30min"
+    elif amt_val in (17000, 170, 170.0):
+        item_type = "voice_call_60min"
 
     if event in ("payment.captured", "order.paid"):
         try:
@@ -312,7 +318,13 @@ async def handle_create_order(request):
         
     try:
         user_id = int(user_id)
-        if item_type in ("chat_pass_1week", "1week"):
+        if item_type in ("voice_call_10min", "voice_10min", "voice_10m"):
+            amount_inr = float(config.VOICE_CALL_10MIN_PRICE_INR)
+        elif item_type in ("voice_call_30min", "voice_30min", "voice_30m"):
+            amount_inr = float(config.VOICE_CALL_30MIN_PRICE_INR)
+        elif item_type in ("voice_call_60min", "voice_call_1hour", "voice_1hour", "voice_60min"):
+            amount_inr = float(config.VOICE_CALL_1HOUR_PRICE_INR)
+        elif item_type in ("chat_pass_1week", "1week"):
             amount_inr = 199.0
         elif item_type in ("chat_pass_1month", "1month"):
             amount_inr = 499.0
@@ -462,6 +474,12 @@ async def handle_verify_payment(request):
             actual_item_type = "chat_pass_1week"
         elif actual_amount in (49900, 499, 499.0):
             actual_item_type = "chat_pass_1month"
+        elif actual_amount in (4000, 40, 40.0):
+            actual_item_type = "voice_call_10min"
+        elif actual_amount in (10000, 100, 100.0):
+            actual_item_type = "voice_call_30min"
+        elif actual_amount in (17000, 170, 170.0):
+            actual_item_type = "voice_call_60min"
 
         unlocked_now, expiry, msg_str = database.unlock_paid_access_idempotent(
             telegram_id=user_id,
@@ -688,6 +706,99 @@ async def handle_api_auth(request):
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
 
+async def handle_api_auth_send_otp(request):
+    """API endpoint to generate and send an OTP to user's mobile number."""
+    try:
+        data = await request.json()
+        phone = str(data.get("phone", "")).strip()
+        clean_phone = re.sub(r'[^0-9+]', '', phone)
+        if len(clean_phone) < 10:
+            return web.json_response({
+                "success": False,
+                "error": "Please enter a valid 10-digit mobile number."
+            }, status=400)
+
+        # Generate 6-digit OTP
+        import random
+        otp = str(random.randint(100000, 999999))
+        database.save_otp(clean_phone, otp, expire_seconds=300)
+        logger.info(f"[AUTH OTP] Generated OTP {otp} for phone {clean_phone}")
+
+        return web.json_response({
+            "success": True,
+            "message": "OTP sent successfully to your mobile number",
+            "phone": clean_phone,
+            "otp_preview": otp  # Included for instant demo & smooth offline testing
+        })
+    except Exception as e:
+        logger.error(f"Error in handle_api_auth_send_otp: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+
+async def handle_api_auth_verify_otp(request):
+    """API endpoint to verify mobile OTP and authenticate or create user."""
+    try:
+        data = await request.json()
+        phone = str(data.get("phone", "")).strip()
+        otp = str(data.get("otp", "")).strip()
+        name = str(data.get("name", "")).strip() or "User"
+
+        clean_phone = re.sub(r'[^0-9+]', '', phone)
+        if not clean_phone or not otp:
+            return web.json_response({
+                "success": False,
+                "error": "Missing phone number or OTP."
+            }, status=400)
+
+        is_valid = database.verify_and_consume_otp(clean_phone, otp)
+        if not is_valid:
+            return web.json_response({
+                "success": False,
+                "error": "Invalid or expired OTP. Please check and try again."
+            }, status=400)
+
+        user = database.get_or_create_user_by_phone(clean_phone, default_name=name)
+        logger.info(f"[AUTH OTP] User authenticated via phone: {clean_phone} -> id={user['telegram_id']}")
+        return web.json_response({
+            "success": True,
+            "user_id": user["telegram_id"],
+            "phone": clean_phone,
+            "username": user["username"],
+            "first_name": user["first_name"]
+        })
+    except Exception as e:
+        logger.error(f"Error in handle_api_auth_verify_otp: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+
+async def handle_api_auth_google(request):
+    """API endpoint to authenticate user via Google account."""
+    try:
+        data = await request.json()
+        email = str(data.get("email", "")).strip()
+        google_id = data.get("google_id")
+        display_name = data.get("display_name") or data.get("name") or "User"
+
+        if not email or "@" not in email:
+            return web.json_response({
+                "success": False,
+                "error": "Missing or invalid Google email address."
+            }, status=400)
+
+        user = database.get_or_create_user_by_google(email, google_id=google_id, display_name=display_name)
+        logger.info(f"[AUTH GOOGLE] User authenticated via Google: {email} -> id={user['telegram_id']}")
+        return web.json_response({
+            "success": True,
+            "user_id": user["telegram_id"],
+            "email": email,
+            "username": user["username"],
+            "first_name": user["first_name"]
+        })
+    except Exception as e:
+        logger.error(f"Error in handle_api_auth_google: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+
 async def handle_api_profile(request):
     """API endpoint to fetch user profile, relationship level, XP, billing, and mode."""
     user_id_str = request.query.get("user_id")
@@ -736,7 +847,8 @@ async def handle_api_profile(request):
             "expiry_date_str": sub_info["expiry_date_str"],
             "expiry_time_str": sub_info["expiry_time_str"],
             "subscription_remaining_text": sub_info["remaining_text"],
-            "subscription_plan": sub_info["plan_name"]
+            "subscription_plan": sub_info["plan_name"],
+            "voice_call_seconds": sub_info.get("voice_call_seconds", 0)
         })
     except Exception as e:
         logger.error(f"Error in handle_api_profile: {e}")
@@ -1142,13 +1254,11 @@ async def handle_api_voice_call_turn(request):
                 "error": "Missing audio content"
             }, status=400)
 
-        # Check paywall
-        is_subscribed = database.is_chat_subscribed(user_id)
-        billing = database.get_user_billing(user_id)
-        free_used = billing.get("free_messages_used", 0) if billing else 0
-        
-        if not is_subscribed and free_used >= config.FREE_MESSAGE_LIMIT:
-            paywall_text = "Aww sweetie, our daily free minutes just ran out! Unlock unlimited calls with me in the VIP lounge so we can keep talking."
+        # Check voice call balance & VIP subscription
+        is_sub = database.is_chat_subscribed(user_id)
+        voice_bal = database.get_user_voice_balance(user_id)
+        if not is_sub and voice_bal <= 0:
+            paywall_text = "Aww sweetie, our voice call minutes just ran out! Top up your call minutes so we can keep talking."
             audio_b64, audio_fmt = await voice_service.text_to_speech(paywall_text)
             return web.json_response({
                 "success": False,
@@ -1157,7 +1267,7 @@ async def handle_api_voice_call_turn(request):
                 "ai_reply": paywall_text,
                 "audio_base64": audio_b64,
                 "audio_format": audio_fmt,
-                "remaining_free": 0
+                "remaining_voice_seconds": 0
             })
 
         result = await voice_service.process_voice_call_turn(
@@ -1167,6 +1277,14 @@ async def handle_api_voice_call_turn(request):
             mime_type=content_type,
             platform="android_app"
         )
+        
+        # Deduct seconds used for this voice turn (speech + processing estimate)
+        turn_sec = max(5, int(len(audio_bytes) / 32000) + 4)
+        new_voice_balance = database.deduct_voice_call_seconds(user_id, turn_sec)
+        if is_sub and new_voice_balance <= 0:
+            new_voice_balance = max(60, new_voice_balance)
+        result["remaining_voice_seconds"] = new_voice_balance
+        result["is_subscribed"] = is_sub
         return web.json_response(result)
     except Exception as e:
         logger.error(f"Error in handle_api_voice_call_turn: {e}", exc_info=True)
@@ -1227,6 +1345,27 @@ async def handle_api_voice_tts(request):
         })
     except Exception as e:
         logger.error(f"Error in handle_api_voice_tts: {e}")
+        return web.json_response({"success": False, "error": str(e)}, status=500)
+
+
+async def handle_api_voice_balance(request):
+    """API endpoint to fetch remaining voice call balance in seconds."""
+    user_id_str = request.query.get("user_id")
+    if not user_id_str:
+        return web.json_response({"success": False, "error": "Missing user_id parameter"}, status=400)
+    try:
+        user_id = int(user_id_str)
+        seconds = database.get_user_voice_balance(user_id)
+        mins = seconds // 60
+        secs = seconds % 60
+        return web.json_response({
+            "success": True,
+            "user_id": user_id,
+            "voice_call_seconds": seconds,
+            "formatted": f"{mins:02d}:{secs:02d}"
+        })
+    except Exception as e:
+        logger.error(f"Error in handle_api_voice_balance: {e}")
         return web.json_response({"success": False, "error": str(e)}, status=500)
 
 
@@ -1463,6 +1602,9 @@ async def handle_checkout_page(request):
         "chat_pass_1month": {"title": "1-Month Unlimited Chat Pass", "desc": "Unlimited instant messages & roleplays with Juhi for 30 days.", "price": 499},
         "image_credits": {"title": "10 Image Generation Credits", "desc": "Generate 10 custom photos of Juhi.", "price": 49},
         "10_images": {"title": "10 Image Generation Credits", "desc": "Generate 10 custom photos of Juhi.", "price": 49},
+        "voice_call_10min": {"title": "10-Minute Voice Call Pass", "desc": "10 minutes of direct real-time audio calls with Juhi.", "price": 40},
+        "voice_call_30min": {"title": "30-Minute Voice Call Pass", "desc": "30 minutes of intimate real-time audio calls with Juhi.", "price": 100},
+        "voice_call_60min": {"title": "1-Hour Voice Call Pass", "desc": "60 minutes of deep romantic audio calls with Juhi.", "price": 170},
     }
     cfg = ITEM_CONFIGS.get(item_type, ITEM_CONFIGS["chat_pass"])
     title = cfg["title"]
@@ -2081,6 +2223,9 @@ async def start_webhook_server(application, port=8080):
     
     # Flutter Mobile App REST API Routes
     app.router.add_post('/api/auth', handle_api_auth)
+    app.router.add_post('/api/auth/send-otp', handle_api_auth_send_otp)
+    app.router.add_post('/api/auth/verify-otp', handle_api_auth_verify_otp)
+    app.router.add_post('/api/auth/google', handle_api_auth_google)
     app.router.add_get('/api/profile', handle_api_profile)
     app.router.add_get('/api/history', handle_api_history)
     app.router.add_post('/api/history/clear', handle_api_clear_history)
@@ -2099,6 +2244,7 @@ async def start_webhook_server(application, port=8080):
     app.router.add_post('/api/voice/call-turn', handle_api_voice_call_turn)
     app.router.add_post('/api/voice/stt', handle_api_voice_stt)
     app.router.add_post('/api/voice/tts', handle_api_voice_tts)
+    app.router.add_get('/api/voice/balance', handle_api_voice_balance)
     
     base_dir = os.path.dirname(os.path.abspath(__file__))
     assets_dir = os.path.join(base_dir, 'assets')

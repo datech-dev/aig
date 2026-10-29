@@ -94,28 +94,59 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       body: Container(
         decoration: const BoxDecoration(gradient: AppTheme.backgroundGradient),
         child: SafeArea(
-          child: PageView(
-            controller: _pageController,
-            physics: const NeverScrollableScrollPhysics(),
-            onPageChanged: (i) {
-              setState(() => _currentPage = i);
-              final title = i < _pages.length ? _pages[i].title : 'Enter Nickname';
-              analyticsService.logOnboardingStep(i, title);
-            },
+          child: Stack(
             children: [
-              // ── Pages 0–2: Feature Showcase ──────────────────────────────
-              ..._pages.asMap().entries.map((e) => _FeaturePage(
-                    page: e.value,
-                    onNext: _nextPage,
-                    isLast: e.key == _pages.length - 1,
-                  )),
+              PageView(
+                controller: _pageController,
+                physics: const NeverScrollableScrollPhysics(),
+                onPageChanged: (i) {
+                  setState(() => _currentPage = i);
+                  final title = i < _pages.length ? _pages[i].title : 'Enter Nickname';
+                  analyticsService.logOnboardingStep(i, title);
+                },
+                children: [
+                  // ── Pages 0–2: Feature Showcase ──────────────────────────────
+                  ..._pages.asMap().entries.map((e) => _FeaturePage(
+                        page: e.value,
+                        onNext: _nextPage,
+                        isLast: e.key == _pages.length - 1,
+                      )),
 
-              // ── Page 3: Name Entry ────────────────────────────────────────
-              _NameEntryPage(
-                controller: _nameController,
-                focusNode: _nameFocus,
-                isLoading: _isLoading,
-                onSubmit: _register,
+                  // ── Page 3: Name Entry ────────────────────────────────────────
+                  _NameEntryPage(
+                    controller: _nameController,
+                    focusNode: _nameFocus,
+                    isLoading: _isLoading,
+                    onSubmit: _register,
+                  ),
+                ],
+              ),
+              Positioned(
+                top: 12,
+                right: 16,
+                child: TextButton(
+                  onPressed: () => context.go('/login'),
+                  style: TextButton.styleFrom(
+                    backgroundColor: Colors.white.withValues(alpha: 0.1),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        'Log In',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                        ),
+                      ),
+                      SizedBox(width: 4),
+                      Icon(Icons.arrow_forward_ios_rounded, color: Colors.white70, size: 12),
+                    ],
+                  ),
+                ),
               ),
             ],
           ),
@@ -402,6 +433,30 @@ class _NameEntryPage extends StatelessWidget {
               .animate(delay: 550.ms)
               .fadeIn(duration: 400.ms)
               .slideY(begin: 0.3, end: 0),
+
+          const SizedBox(height: 20),
+
+          TextButton(
+            onPressed: () => context.go('/login'),
+            child: RichText(
+              text: TextSpan(
+                text: 'Already have an account? ',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: AppTheme.textSecondary.withValues(alpha: 0.8),
+                ),
+                children: const [
+                  TextSpan(
+                    text: 'Log In',
+                    style: TextStyle(
+                      color: AppTheme.primary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ).animate(delay: 600.ms).fadeIn(),
         ],
       ),
     );

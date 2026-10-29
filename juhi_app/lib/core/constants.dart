@@ -6,6 +6,9 @@ class AppConstants {
   static const String baseUrl = 'https://zetagirl.zetalink.cloud';
 
   static const String apiAuth = '/api/auth';
+  static const String apiAuthSendOtp = '/api/auth/send-otp';
+  static const String apiAuthVerifyOtp = '/api/auth/verify-otp';
+  static const String apiAuthGoogle = '/api/auth/google';
   static const String apiProfile = '/api/profile';
   static const String apiHistory = '/api/history';
   static const String apiHistoryClear = '/api/history/clear';
@@ -24,6 +27,7 @@ class AppConstants {
   static const String apiVoiceCallTurn = '/api/voice/call-turn';
   static const String apiVoiceStt = '/api/voice/stt';
   static const String apiVoiceTts = '/api/voice/tts';
+  static const String apiVoiceBalance = '/api/voice/balance';
 
   // ── Storage Keys ──────────────────────────────────────────────────────────
   static const String keyUserId = 'user_id';
@@ -56,6 +60,11 @@ class AppConstants {
   static const int price1Week = 199;
   static const int price1Month = 499;
   static const int priceImages = 49;
+
+  // ── Voice Call Pricing (INR) ──────────────────────────────────────────────
+  static const int priceVoice10Min = 40;
+  static const int priceVoice30Min = 100;
+  static const int priceVoice1Hour = 170;
 
   // ── App Info ──────────────────────────────────────────────────────────────
   static const String appName = 'Juhi';

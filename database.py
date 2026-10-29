@@ -77,6 +77,7 @@ def init_db():
             free_messages_used INTEGER DEFAULT 0,
             chat_expires_at TIMESTAMP DEFAULT NULL,
             image_credits INTEGER DEFAULT 2,
+            voice_call_seconds INTEGER DEFAULT 120,
             FOREIGN KEY(telegram_id) REFERENCES users(telegram_id)
         )
     """)
@@ -254,6 +255,33 @@ def init_db():
     except sqlite3.OperationalError:
         pass
 
+    # Run migration to add voice_call_seconds column to user_billing if not exists
+    try:
+        cursor.execute(f"ALTER TABLE user_billing ADD COLUMN voice_call_seconds INTEGER DEFAULT {config.INITIAL_VOICE_CALL_SECONDS}")
+    except sqlite3.OperationalError:
+        pass
+
+    # Auth OTPs table for mobile OTP verification
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS auth_otps (
+            phone TEXT PRIMARY KEY,
+            otp TEXT NOT NULL,
+            expires_at TIMESTAMP NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    # Migrations for users table (phone, email, auth_provider)
+    for col_name, col_def in [
+        ("phone", "TEXT DEFAULT NULL"),
+        ("email", "TEXT DEFAULT NULL"),
+        ("auth_provider", "TEXT DEFAULT 'anonymous'")
+    ]:
+        try:
+            cursor.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_def}")
+        except sqlite3.OperationalError:
+            pass
+
     # Mobile App push notification device tokens
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS device_tokens (
@@ -380,6 +408,113 @@ def setup_user(telegram_id, username, first_name):
         
     conn.commit()
     conn.close()
+
+
+def save_otp(phone: str, otp: str, expire_seconds: int = 300) -> None:
+    """Saves or updates an OTP for a given phone number with an expiration time."""
+    clean_phone = re.sub(r'[^0-9+]', '', str(phone).strip())
+    now = datetime.utcnow()
+    expires_at = (now + timedelta(seconds=expire_seconds)).isoformat()
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO auth_otps (phone, otp, expires_at, created_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(phone) DO UPDATE SET
+            otp = excluded.otp,
+            expires_at = excluded.expires_at,
+            created_at = excluded.created_at
+    """, (clean_phone, otp, expires_at, now.isoformat()))
+    conn.commit()
+    conn.close()
+
+
+def verify_and_consume_otp(phone: str, otp: str) -> bool:
+    """Verifies that the OTP is correct and unexpired, then deletes it. Returns True if valid."""
+    clean_phone = re.sub(r'[^0-9+]', '', str(phone).strip())
+    clean_otp = str(otp).strip()
+    now_iso = datetime.utcnow().isoformat()
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT otp, expires_at FROM auth_otps WHERE phone = ?
+    """, (clean_phone,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return False
+
+    stored_otp = str(row["otp"]).strip()
+    expires_at = str(row["expires_at"]).strip()
+
+    if stored_otp != clean_otp or expires_at < now_iso:
+        conn.close()
+        return False
+
+    cursor.execute("DELETE FROM auth_otps WHERE phone = ?", (clean_phone,))
+    conn.commit()
+    conn.close()
+    return True
+
+
+def get_or_create_user_by_phone(phone: str, default_name: str = "User") -> dict:
+    """Finds an existing user by phone or creates a new one with a unique numeric ID."""
+    clean_phone = re.sub(r'[^0-9+]', '', str(phone).strip())
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users WHERE phone = ?", (clean_phone,))
+    row = cursor.fetchone()
+    if row:
+        u_dict = dict(row)
+        conn.close()
+        return u_dict
+
+    numeric_id = 800000000 + (abs(hash(clean_phone)) % 99999999)
+    username = f"user_{clean_phone[-4:] if len(clean_phone) >= 4 else clean_phone}"
+    first_name = default_name or "User"
+
+    cursor.execute("""
+        INSERT INTO users (telegram_id, username, first_name, phone, auth_provider)
+        VALUES (?, ?, ?, ?, 'phone')
+        ON CONFLICT(telegram_id) DO UPDATE SET phone = excluded.phone
+    """, (numeric_id, username, first_name, clean_phone))
+    conn.commit()
+    cursor.execute("SELECT * FROM users WHERE telegram_id = ?", (numeric_id,))
+    new_row = cursor.fetchone()
+    conn.close()
+
+    setup_user(numeric_id, username, first_name)
+    return dict(new_row) if new_row else {"telegram_id": numeric_id, "username": username, "first_name": first_name}
+
+
+def get_or_create_user_by_google(email: str, google_id: str = None, display_name: str = "User") -> dict:
+    """Finds an existing user by email or creates a new one with a unique numeric ID."""
+    clean_email = str(email).strip().lower()
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users WHERE email = ?", (clean_email,))
+    row = cursor.fetchone()
+    if row:
+        u_dict = dict(row)
+        conn.close()
+        return u_dict
+
+    numeric_id = 700000000 + (abs(hash(clean_email)) % 99999999)
+    username = clean_email.split("@")[0][:20]
+    first_name = display_name or username
+
+    cursor.execute("""
+        INSERT INTO users (telegram_id, username, first_name, email, auth_provider)
+        VALUES (?, ?, ?, ?, 'google')
+        ON CONFLICT(telegram_id) DO UPDATE SET email = excluded.email
+    """, (numeric_id, username, first_name, clean_email))
+    conn.commit()
+    cursor.execute("SELECT * FROM users WHERE telegram_id = ?", (numeric_id,))
+    new_row = cursor.fetchone()
+    conn.close()
+
+    setup_user(numeric_id, username, first_name)
+    return dict(new_row) if new_row else {"telegram_id": numeric_id, "username": username, "first_name": first_name}
 
 
 def get_active_persona_key(telegram_id):
@@ -664,9 +799,9 @@ def get_user_billing(telegram_id):
     if not row:
         try:
             cursor.execute("""
-                INSERT OR IGNORE INTO user_billing (telegram_id, free_messages_used, chat_expires_at, image_credits, last_free_message_reset)
-                VALUES (?, 0, NULL, ?, ?)
-            """, (telegram_id, INITIAL_IMAGE_CREDITS, now_str))
+                INSERT OR IGNORE INTO user_billing (telegram_id, free_messages_used, chat_expires_at, image_credits, voice_call_seconds, last_free_message_reset)
+                VALUES (?, 0, NULL, ?, ?, ?)
+            """, (telegram_id, INITIAL_IMAGE_CREDITS, config.INITIAL_VOICE_CALL_SECONDS, now_str))
         except sqlite3.OperationalError:
             cursor.execute("""
                 INSERT OR IGNORE INTO user_billing (telegram_id, free_messages_used, chat_expires_at, image_credits)
@@ -876,7 +1011,8 @@ def get_subscription_info(telegram_id):
         "free_messages_used": billing["free_messages_used"],
         "free_messages_remaining": rem_free,
         "free_message_limit": config.FREE_MESSAGE_LIMIT,
-        "image_credits": billing.get("image_credits", 0)
+        "image_credits": billing.get("image_credits", 0),
+        "voice_call_seconds": billing.get("voice_call_seconds", 0)
     }
 
 
@@ -918,6 +1054,53 @@ def use_image_credit(telegram_id):
     conn.commit()
     conn.close()
     return True
+
+
+def get_user_voice_balance(telegram_id):
+    """Returns the user's remaining voice call balance in seconds."""
+    billing = get_user_billing(telegram_id)
+    if not billing:
+        return config.INITIAL_VOICE_CALL_SECONDS
+    bal = int(billing.get("voice_call_seconds") or 0)
+    # Active VIP subscribers receive a 15-minute (900s) calling reserve if depleted
+    if bal <= 0 and is_chat_subscribed(telegram_id):
+        grant_voice_call_seconds(telegram_id, 900)
+        return 900
+    return bal
+
+
+def grant_voice_call_seconds(telegram_id, seconds=600):
+    """Adds voice call seconds to user's balance and returns the updated balance."""
+    get_user_billing(telegram_id)
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE user_billing
+        SET voice_call_seconds = COALESCE(voice_call_seconds, 0) + ?
+        WHERE telegram_id = ?
+    """, (seconds, telegram_id))
+    conn.commit()
+    cursor.execute("SELECT voice_call_seconds FROM user_billing WHERE telegram_id = ?", (telegram_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return int(row["voice_call_seconds"] if row else 0)
+
+
+def deduct_voice_call_seconds(telegram_id, seconds):
+    """Deducts voice call seconds from balance (min 0) and returns the remaining balance."""
+    get_user_billing(telegram_id)
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE user_billing
+        SET voice_call_seconds = MAX(0, COALESCE(voice_call_seconds, 0) - ?)
+        WHERE telegram_id = ?
+    """, (seconds, telegram_id))
+    conn.commit()
+    cursor.execute("SELECT voice_call_seconds FROM user_billing WHERE telegram_id = ?", (telegram_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return int(row["voice_call_seconds"] if row else 0)
 
 
 def log_payment_intent(telegram_id, item_type, amount=5000, payment_link_id=None):
@@ -1228,11 +1411,17 @@ def unlock_paid_access_idempotent(telegram_id, order_id, payment_id, item_type="
     # 2. Safety net: infer plan from payment amount if ambiguous
     try:
         amt_val = float(amount or 0)
-        # 199 INR = 19900 paise, 499 INR = 49900 paise
+        # 199 INR = 19900 paise, 499 INR = 49900 paise, 40 INR = 4000 paise
         if amt_val in (19900, 199, 199.0):
             resolved_item_type = "chat_pass_1week"
         elif amt_val in (49900, 499, 499.0):
             resolved_item_type = "chat_pass_1month"
+        elif amt_val in (4000, 40, 40.0):
+            resolved_item_type = "voice_call_10min"
+        elif amt_val in (10000, 100, 100.0):
+            resolved_item_type = "voice_call_30min"
+        elif amt_val in (17000, 170, 170.0):
+            resolved_item_type = "voice_call_60min"
         elif amt_val in (4900, 49, 49.0):
             if resolved_item_type not in ("image_credits", "10_images", "images", "photos"):
                 resolved_item_type = "chat_pass_1day"
@@ -1293,12 +1482,21 @@ def unlock_paid_access_idempotent(telegram_id, order_id, payment_id, item_type="
     expiry = None
     if norm_item in ("image_credits", "10_images", "images", "photos"):
         grant_image_credits(telegram_id, amount=10)
+    elif norm_item in ("voice_call_10min", "voice_10min", "voice_10m"):
+        grant_voice_call_seconds(telegram_id, seconds=config.VOICE_CALL_10MIN_SECONDS)
+    elif norm_item in ("voice_call_30min", "voice_30min", "voice_30m"):
+        grant_voice_call_seconds(telegram_id, seconds=config.VOICE_CALL_30MIN_SECONDS)
+    elif norm_item in ("voice_call_60min", "voice_call_1hour", "voice_1hour", "voice_60min", "voice_hour"):
+        grant_voice_call_seconds(telegram_id, seconds=config.VOICE_CALL_1HOUR_SECONDS)
     elif norm_item in ("chat_pass_1week", "1week", "week", "weekly", "chat_pass_week", "1 week", "1_week", "7days", "7_days", "7 days"):
         expiry = grant_chat_pass(telegram_id, hours=168)  # 1 week (7 days)
+        grant_voice_call_seconds(telegram_id, seconds=3600)  # +60 mins voice call bonus for 1-Week VIP!
     elif norm_item in ("chat_pass_1month", "1month", "month", "monthly", "chat_pass_month", "chat_pass_30days", "1 month", "1_month", "30days", "30_days", "30 days"):
         expiry = grant_chat_pass(telegram_id, hours=720)  # 1 month (30 days)
+        grant_voice_call_seconds(telegram_id, seconds=18000)  # +300 mins (5 hrs) voice call bonus for 1-Month VIP!
     else:
         expiry = grant_chat_pass(telegram_id, hours=CHAT_PASS_DURATION_HOURS)  # 1 day (24 hours)
+        grant_voice_call_seconds(telegram_id, seconds=900)  # +15 mins voice call bonus for 1-Day VIP!
 
     # Log required lifecycle events
     log_payment_event(

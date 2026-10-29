@@ -20,6 +20,7 @@ class UserProfile {
   final String? expiryTimeStr;
   final String? subscriptionRemainingText;
   final String? subscriptionPlan;
+  final int voiceCallSeconds;
 
   const UserProfile({
     required this.userId,
@@ -37,6 +38,7 @@ class UserProfile {
     required this.isSubscribed,
     required this.remainingFreeMessages,
     required this.imageCredits,
+    this.voiceCallSeconds = 0,
     this.chatExpiresAt,
     this.expiresAtIst,
     this.expiryDateStr,
@@ -62,6 +64,7 @@ class UserProfile {
       isSubscribed: json['is_subscribed'] ?? false,
       remainingFreeMessages: json['remaining_free_messages'] ?? 10,
       imageCredits: json['image_credits'] ?? 0,
+      voiceCallSeconds: (json['voice_call_seconds'] as num?)?.toInt() ?? 0,
       chatExpiresAt: json['chat_expires_at'],
       expiresAtIst: json['expires_at_ist'],
       expiryDateStr: json['expiry_date_str'],
@@ -73,8 +76,15 @@ class UserProfile {
 
   bool get isIntimateMode => chatMode == 'intimate';
   bool get hasImageCredits => imageCredits > 0;
+  bool get hasVoiceBalance => voiceCallSeconds > 0;
   int get affection => xp;
   int get affectionPercent => xpPercent;
+
+  String get formattedVoiceBalance {
+    final mins = voiceCallSeconds ~/ 60;
+    final secs = voiceCallSeconds % 60;
+    return '${mins.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
+  }
 
   DateTime? get chatExpiresAtDate {
     if (chatExpiresAt == null || chatExpiresAt!.isEmpty) return null;
@@ -131,6 +141,7 @@ class UserProfile {
     String? expiryTimeStr,
     String? subscriptionRemainingText,
     String? subscriptionPlan,
+    int? voiceCallSeconds,
   }) {
     return UserProfile(
       userId: userId,
@@ -148,6 +159,7 @@ class UserProfile {
       isSubscribed: isSubscribed ?? this.isSubscribed,
       remainingFreeMessages: remainingFreeMessages ?? this.remainingFreeMessages,
       imageCredits: imageCredits ?? this.imageCredits,
+      voiceCallSeconds: voiceCallSeconds ?? this.voiceCallSeconds,
       chatExpiresAt: chatExpiresAt ?? this.chatExpiresAt,
       expiresAtIst: expiresAtIst ?? this.expiresAtIst,
       expiryDateStr: expiryDateStr ?? this.expiryDateStr,

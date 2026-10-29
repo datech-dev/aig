@@ -6,7 +6,11 @@ from io import BytesIO
 from datetime import datetime, timedelta, timezone
 from PIL import Image
 from openai import AsyncOpenAI
-from config import VENICE_API_KEY, VENICE_MODEL, construct_system_prompt, VENICE_IMAGE_MODEL, get_relationship_status, get_gif_descriptions
+from config import (
+    VENICE_API_KEY, VENICE_MODEL, construct_system_prompt, VENICE_IMAGE_MODEL,
+    get_relationship_status, get_gif_descriptions,
+    LLM_PROVIDER, SARVAM_API_KEY, SARVAM_CHAT_MODEL, SARVAM_CHAT_BASE_URL, CHAT_MODEL
+)
 from context_models import RelationshipState, EmotionContext
 from response_planner import planner as response_planner
 from llm_output import validate_llm_response, to_legacy_compatible_text
@@ -17,18 +21,25 @@ from context_compiler import compiler
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize Venice AI client (OpenAI compatible)
-# Base URL: https://api.venice.ai/api/v1
-# If VENICE_API_KEY is not set, we'll log a warning.
-if not VENICE_API_KEY or VENICE_API_KEY == "YOUR_VENICE_API_KEY":
-    logger.warning("VENICE_API_KEY is not set or is using the default placeholder. API requests will fail.")
-
-client = AsyncOpenAI(
-    api_key=VENICE_API_KEY if VENICE_API_KEY else "dummy_key",
-    base_url="https://api.venice.ai/api/v1",
-    timeout=httpx.Timeout(20.0, connect=5.0),
-    max_retries=1,
-)
+# Initialize Chat Completion client (Sarvam AI or Venice AI)
+if LLM_PROVIDER == "sarvam" and SARVAM_API_KEY:
+    logger.info("Initializing Sarvam AI client for chat completions with model: %s", CHAT_MODEL)
+    client = AsyncOpenAI(
+        api_key=SARVAM_API_KEY,
+        base_url=SARVAM_CHAT_BASE_URL,
+        timeout=httpx.Timeout(30.0, connect=5.0),
+        max_retries=1,
+    )
+else:
+    if not VENICE_API_KEY or VENICE_API_KEY == "YOUR_VENICE_API_KEY":
+        logger.warning("VENICE_API_KEY is not set or is using the default placeholder. API requests will fail.")
+    logger.info("Initializing Venice AI client for chat completions with model: %s", CHAT_MODEL)
+    client = AsyncOpenAI(
+        api_key=VENICE_API_KEY if VENICE_API_KEY else "dummy_key",
+        base_url="https://api.venice.ai/api/v1",
+        timeout=httpx.Timeout(20.0, connect=5.0),
+        max_retries=1,
+    )
 
 import re
 import json
@@ -197,7 +208,7 @@ async def extract_and_save_user_memories_llm(user_id: int, user_message: str):
 
     try:
         response = await client.chat.completions.create(
-            model=VENICE_MODEL,
+            model=CHAT_MODEL,
             messages=[
                 {"role": "system", "content": MEMORY_EXTRACTION_SYSTEM_PROMPT},
                 {"role": "user", "content": f'User message: "{user_message}"'}
@@ -309,7 +320,7 @@ async def backfill_user_memories_from_history(user_id: int, max_messages: int = 
 
         try:
             response = await client.chat.completions.create(
-                model=VENICE_MODEL,
+                model=CHAT_MODEL,
                 messages=[
                     {"role": "system", "content": MEMORY_EXTRACTION_SYSTEM_PROMPT},
                     {
@@ -536,7 +547,7 @@ async def generate_response(
 
     try:
         response = await client.chat.completions.create(
-            model=VENICE_MODEL,
+            model=CHAT_MODEL,
             messages=messages,
             temperature=0.75,
             max_tokens=turn_max_tokens,
@@ -557,7 +568,7 @@ async def generate_response(
         return to_legacy_compatible_text(validated)
 
     except Exception as e:
-        logger.error("Error calling Venice AI API: %s", e)
+        logger.error("Error calling Chat LLM API: %s", e)
         return "my thoughts are a bit scrambled right now... try me again in a bit?"
 
 
@@ -734,7 +745,7 @@ async def enhance_image_prompt(user_message: str, appearance: str) -> str:
 
     try:
         response = await client.chat.completions.create(
-            model=VENICE_MODEL,
+            model=CHAT_MODEL,
             messages=messages,
             temperature=0.8,
             max_tokens=150
@@ -829,7 +840,7 @@ async def evaluate_proactive_decision(
 
     try:
         response = await client.chat.completions.create(
-            model=VENICE_MODEL,
+            model=CHAT_MODEL,
             messages=messages,
             temperature=0.7,
             max_tokens=60

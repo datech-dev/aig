@@ -1,0 +1,6 @@
+# Keystore configuration for signing Android releases
+# DO NOT commit the actual key.properties to source control (it is git-ignored)
+storePassword=YOUR_STORE_PASSWORD
+keyPassword=YOUR_KEY_PASSWORD
+keyAlias=upload
+storeFile=upload-keystore.jks

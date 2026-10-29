@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../data/api_service.dart';
 import '../data/local_storage.dart';
 import '../services/analytics_service.dart';
+import '../services/voice_call_service.dart';
 import 'profile_provider.dart';
 
 // ── Billing State ────────────────────────────────────────────────────────────
@@ -217,6 +218,9 @@ class BillingNotifier extends StateNotifier<BillingState> {
 
       // Refresh profile so updated subscription / image credits reflect immediately
       await _ref.read(profileProvider.notifier).refresh();
+      if (userId != null) {
+        await voiceCallService.refreshBalance(userId);
+      }
 
       analyticsService.logPaymentSuccess(
         orderId: orderId,

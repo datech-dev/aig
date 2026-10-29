@@ -178,10 +178,10 @@ async def process_voice_call_turn(
 
     logger.info(f"[Voice Call Turn] Processing call turn for user {user_id} ({len(audio_bytes)} audio bytes)")
 
-    # Check for empty/micro-duration audio (accidental tap)
+    # Check for empty/micro-duration audio (accidental tap or silence)
     if len(audio_bytes) < 3000:
-        logger.warning(f"[Voice Call Turn] Audio too short ({len(audio_bytes)} bytes). Treating as quick tap.")
-        default_reply = "I'm listening, sweetie! Tap and speak for a moment so I can hear your lovely voice."
+        logger.warning(f"[Voice Call Turn] Audio too short ({len(audio_bytes)} bytes). Treating as quick pause.")
+        default_reply = "I'm listening, sweetie! Tell me what's on your mind."
         audio_b64, audio_fmt = await text_to_speech(default_reply)
         return {
             "success": True,
@@ -201,8 +201,8 @@ async def process_voice_call_turn(
         transcript = ""
     
     if not transcript:
-        # Handle silence / inaudible speech gracefully
-        default_reply = "I didn't quite catch that, sweetie. Could you say that again?"
+        # Handle silence / inaudible speech gracefully in a continuous call
+        default_reply = "I'm right here with you, sweetie. I couldn't quite hear you, tell me again?"
         audio_b64, audio_fmt = await text_to_speech(default_reply)
         return {
             "success": True,

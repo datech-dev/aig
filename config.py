@@ -6,8 +6,15 @@ load_dotenv()
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 ADMIN_TELEGRAM_ID = os.getenv("ADMIN_TELEGRAM_ID")
+# LLM Chat Provider & Model Configuration
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "sarvam").lower()
+SARVAM_CHAT_MODEL = os.getenv("SARVAM_CHAT_MODEL", "sarvam-105b-conversations")
+SARVAM_CHAT_BASE_URL = os.getenv("SARVAM_CHAT_BASE_URL", "https://api.sarvam.ai/v1")
+
+# Chat Model selector: defaults to sarvam-105b-conversations
+CHAT_MODEL = os.getenv("CHAT_MODEL", SARVAM_CHAT_MODEL if LLM_PROVIDER == "sarvam" else os.getenv("VENICE_MODEL", "sarvam-105b-conversations"))
 VENICE_API_KEY = os.getenv("VENICE_API_KEY")
-VENICE_MODEL = os.getenv("VENICE_MODEL", "aion-labs-aion-3-5-mini")
+VENICE_MODEL = os.getenv("VENICE_MODEL", CHAT_MODEL)
 VENICE_IMAGE_MODEL = os.getenv("VENICE_IMAGE_MODEL", "fluently-xl")
 GIPHY_API_KEY = os.getenv("GIPHY_API_KEY", "TWPWLly8Lf8NmpjQaX3PbFreGjp9zgPJ")
 
@@ -40,6 +47,18 @@ CHAT_PASS_1DAY_PRICE_INR = 49      # 1 day - 49 rupees
 CHAT_PASS_1WEEK_PRICE_INR = 199    # 1 week - 199 rupees
 CHAT_PASS_1MONTH_PRICE_INR = 499   # 1 month - 499 rupees
 IMAGE_PASS_PRICE_INR = 49          # 10 images - 49 rupees
+
+# Audio Call Pricing Tiers (INR & Seconds)
+VOICE_CALL_10MIN_PRICE_INR = 40     # 10 minutes - 40 rupees
+VOICE_CALL_10MIN_SECONDS = 600
+
+VOICE_CALL_30MIN_PRICE_INR = 100    # 30 minutes - 100 rupees
+VOICE_CALL_30MIN_SECONDS = 1800
+
+VOICE_CALL_1HOUR_PRICE_INR = 170    # 1 hour - 170 rupees
+VOICE_CALL_1HOUR_SECONDS = 3600
+
+INITIAL_VOICE_CALL_SECONDS = 120    # 2 minutes free trial for new users
 
 # Legacy compatibility constants
 CHAT_PASS_PRICE_INR = 49

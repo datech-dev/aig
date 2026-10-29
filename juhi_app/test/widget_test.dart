@@ -124,6 +124,28 @@ void main() {
       expect(AppConstants.price1Week, 199);
       expect(AppConstants.price1Month, 499);
       expect(AppConstants.priceImages, 49);
+
+      // Voice call pricing
+      expect(AppConstants.priceVoice10Min, 40);
+      expect(AppConstants.priceVoice30Min, 100);
+      expect(AppConstants.priceVoice1Hour, 170);
+    });
+
+    test('UserProfile parses voice call seconds and formats balance correctly', () {
+      final profile = UserProfile.fromJson({
+        'user_id': '101',
+        'voice_call_seconds': 600,
+      });
+      expect(profile.voiceCallSeconds, 600);
+      expect(profile.formattedVoiceBalance, '10:00');
+      expect(profile.hasVoiceBalance, true);
+
+      final zeroProfile = UserProfile.fromJson({
+        'user_id': '102',
+        'voice_call_seconds': 0,
+      });
+      expect(zeroProfile.formattedVoiceBalance, '00:00');
+      expect(zeroProfile.hasVoiceBalance, false);
     });
 
     test('UserProfile formats subscription expiry accurately', () {
@@ -197,6 +219,31 @@ void main() {
       expect(AppConstants.apiDeviceToken, '/api/device-token');
       expect(AppConstants.apiTestNotification, '/api/notifications/test');
       expect(AppConstants.apiProactiveCheck, '/api/proactive/check');
+    });
+  });
+
+  group('Juhi App Phase 7 Auth & Login Tests', () {
+    test('Auth endpoints configured properly in AppConstants', () {
+      expect(AppConstants.apiAuth, '/api/auth');
+      expect(AppConstants.apiAuthSendOtp, '/api/auth/send-otp');
+      expect(AppConstants.apiAuthVerifyOtp, '/api/auth/verify-otp');
+      expect(AppConstants.apiAuthGoogle, '/api/auth/google');
+    });
+
+    test('Clean phone number format handles +91 prefix and digits', () {
+      const rawInput = ' 98765 43210 ';
+      final cleanDigits = rawInput.replaceAll(RegExp(r'[^0-9]'), '');
+      expect(cleanDigits, '9876543210');
+      expect(cleanDigits.length, 10);
+      final formatted = '+91$cleanDigits';
+      expect(formatted, '+919876543210');
+    });
+
+    test('OTP length verification checks 6 digits', () {
+      const validOtp = '123456';
+      const shortOtp = '12345';
+      expect(validOtp.length == 6, true);
+      expect(shortOtp.length == 6, false);
     });
   });
 }

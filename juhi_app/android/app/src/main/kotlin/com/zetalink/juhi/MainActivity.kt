@@ -1,4 +1,4 @@
-package com.zetagirl.juhi_app
+package com.zetalink.juhi
 
 import io.flutter.embedding.android.FlutterActivity
 

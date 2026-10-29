@@ -221,6 +221,123 @@ class _StoreScreenState extends ConsumerState<StoreScreen> {
 
                       const SizedBox(height: 24),
 
+                      // ── Voice Calling Passes Section ─────────────────────────────
+                      Row(
+                        children: [
+                          const Expanded(
+                              child: Divider(
+                                  color: AppTheme.border, thickness: 0.6)),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 14),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.phone_in_talk_rounded,
+                                    color: Color(0xFF00E5FF), size: 16),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Voice Calling Passes',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppTheme.textSecondary,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Expanded(
+                              child: Divider(
+                                  color: AppTheme.border, thickness: 0.6)),
+                        ],
+                      ).animate(delay: 210.ms).fadeIn(),
+
+                      const SizedBox(height: 16),
+
+                      // 10 Minutes Voice Call (₹40)
+                      _PlanCard(
+                        emoji: '📞',
+                        title: '10 Minutes Audio Call',
+                        price: AppConstants.priceVoice10Min,
+                        description: 'Quick romantic call with Juhi',
+                        features: const [
+                          '10 minutes of direct real-time audio',
+                          'Natural, expressive AI voice (Sarvam Bulbul v4)',
+                          'Real-time conversational flow & replies',
+                          'Call minutes never expire until used',
+                        ],
+                        gradient: const [Color(0xFF00B4D8), Color(0xFF0077B6)],
+                        badge: null,
+                        planType: 'voice_call_10min',
+                        isLoading: billingState.isProcessing &&
+                            billingState.activePlanLoading == 'voice_call_10min',
+                        onBuy: () => ref
+                            .read(billingProvider.notifier)
+                            .purchasePlan(
+                              planType: 'voice_call_10min',
+                              planTitle: '10-Minute Voice Pass',
+                              amountInr: AppConstants.priceVoice10Min,
+                            ),
+                      ).animate(delay: 220.ms).fadeIn().slideY(begin: 0.1, end: 0),
+
+                      const SizedBox(height: 14),
+
+                      // 30 Minutes Voice Call (₹100)
+                      _PlanCard(
+                        emoji: '💬',
+                        title: '30 Minutes Audio Call',
+                        price: AppConstants.priceVoice30Min,
+                        description: 'Deep intimate conversations & daily sharing',
+                        features: const [
+                          '30 minutes of real-time voice call time',
+                          'Sweet pet names, playful banter & deep talks',
+                          'Pause, hang up & resume calls anytime',
+                          'Save 17% vs 10-minute rate',
+                        ],
+                        gradient: const [Color(0xFF06D6A0), Color(0xFF009688)],
+                        badge: '🌟 Popular Choice',
+                        planType: 'voice_call_30min',
+                        isLoading: billingState.isProcessing &&
+                            billingState.activePlanLoading == 'voice_call_30min',
+                        onBuy: () => ref
+                            .read(billingProvider.notifier)
+                            .purchasePlan(
+                              planType: 'voice_call_30min',
+                              planTitle: '30-Minute Voice Pass',
+                              amountInr: AppConstants.priceVoice30Min,
+                            ),
+                      ).animate(delay: 240.ms).fadeIn().slideY(begin: 0.1, end: 0),
+
+                      const SizedBox(height: 14),
+
+                      // 1 Hour Voice Call (₹170)
+                      _PlanCard(
+                        emoji: '💕',
+                        title: '1 Hour Audio Call',
+                        price: AppConstants.priceVoice1Hour,
+                        description: 'Long romantic late-night calls & stories',
+                        features: const [
+                          '60 full minutes of real-time voice intimacy',
+                          'Late-night chats, cozy bedtime talks & memories',
+                          'Priority audio processing pipeline',
+                          'Best Value (Save over 29%)',
+                        ],
+                        gradient: const [Color(0xFFFF007F), Color(0xFF7928CA)],
+                        badge: '👑 Best Value',
+                        planType: 'voice_call_60min',
+                        isLoading: billingState.isProcessing &&
+                            billingState.activePlanLoading == 'voice_call_60min',
+                        onBuy: () => ref
+                            .read(billingProvider.notifier)
+                            .purchasePlan(
+                              planType: 'voice_call_60min',
+                              planTitle: '1-Hour Voice Pass',
+                              amountInr: AppConstants.priceVoice1Hour,
+                            ),
+                      ).animate(delay: 260.ms).fadeIn().slideY(begin: 0.1, end: 0),
+
+                      const SizedBox(height: 24),
+
                       // Add-ons Section
                       Row(
                         children: [
@@ -426,9 +543,9 @@ class _ActiveStatusCard extends StatelessWidget {
                 Text(
                   isSubscribed
                       ? (expiryStr != null
-                          ? '$expiryStr • $credits Selfies remaining'
-                          : 'Unlimited chats • $credits Selfies remaining')
-                      : '$freeRemaining free msgs remaining • $credits Selfies',
+                          ? '$expiryStr • $credits Selfies • ${(profile?.voiceCallSeconds ?? 0) ~/ 60}m Call time'
+                          : 'Unlimited chats • $credits Selfies • ${(profile?.voiceCallSeconds ?? 0) ~/ 60}m Call time')
+                      : '$freeRemaining free msgs • $credits Selfies • ${(profile?.voiceCallSeconds ?? 0) ~/ 60}m Call time',
                   style: TextStyle(
                     fontSize: 12,
                     color: AppTheme.textSecondary,

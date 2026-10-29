@@ -58,6 +58,49 @@ class ApiService {
     return response.data as Map<String, dynamic>;
   }
 
+  /// Request an OTP to be sent to a 10-digit mobile number
+  Future<Map<String, dynamic>> sendOtp(String phone) async {
+    final response = await _dio.post(
+      AppConstants.apiAuthSendOtp,
+      data: {'phone': phone},
+    );
+    return response.data as Map<String, dynamic>;
+  }
+
+  /// Verify mobile OTP and retrieve/create the user account
+  Future<Map<String, dynamic>> verifyOtp({
+    required String phone,
+    required String otp,
+    String? name,
+  }) async {
+    final response = await _dio.post(
+      AppConstants.apiAuthVerifyOtp,
+      data: {
+        'phone': phone,
+        'otp': otp,
+        if (name != null && name.isNotEmpty) 'name': name,
+      },
+    );
+    return response.data as Map<String, dynamic>;
+  }
+
+  /// Sign in with Google account email and details
+  Future<Map<String, dynamic>> loginWithGoogle({
+    required String email,
+    String? googleId,
+    String? displayName,
+  }) async {
+    final response = await _dio.post(
+      AppConstants.apiAuthGoogle,
+      data: {
+        'email': email,
+        if (googleId != null && googleId.isNotEmpty) 'google_id': googleId,
+        if (displayName != null && displayName.isNotEmpty) 'display_name': displayName,
+      },
+    );
+    return response.data as Map<String, dynamic>;
+  }
+
   // ── Profile ───────────────────────────────────────────────────────────────
   Future<Map<String, dynamic>> getProfile(String userId) async {
     final response = await _dio.get(
@@ -316,7 +359,21 @@ class ApiService {
     );
     return response.data as Map<String, dynamic>;
   }
+
+  Future<int> getVoiceBalance(String userId) async {
+    try {
+      final response = await _dio.get(
+        AppConstants.apiVoiceBalance,
+        queryParameters: {'user_id': userId},
+      );
+      final data = response.data as Map<String, dynamic>;
+      return (data['voice_call_seconds'] as num?)?.toInt() ?? 0;
+    } catch (e) {
+      return 0;
+    }
+  }
 }
+
 
 // Singleton instance
 final apiService = ApiService();

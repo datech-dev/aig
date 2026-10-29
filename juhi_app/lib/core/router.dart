@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../providers/auth_provider.dart';
 import '../screens/splash/splash_screen.dart';
 import '../screens/onboarding/onboarding_screen.dart';
+import '../screens/auth/login_screen.dart';
 import '../screens/chat/chat_screen.dart';
 import '../screens/profile/profile_screen.dart';
 import '../screens/store/store_screen.dart';
@@ -29,16 +30,17 @@ final routerProvider = Provider<GoRouter>((ref) {
 
       if (isLoading) return null;
 
-      // Not logged in → go to onboarding (unless already there or on splash)
+      // Not logged in → go to login/onboarding
       if (!isLoggedIn &&
+          location != '/login' &&
           location != '/onboarding' &&
           location != '/splash') {
-        return '/onboarding';
+        return '/login';
       }
 
-      // Logged in → skip splash/onboarding
+      // Logged in → skip splash, onboarding, login
       if (isLoggedIn &&
-          (location == '/splash' || location == '/onboarding')) {
+          (location == '/splash' || location == '/onboarding' || location == '/login')) {
         return '/chat';
       }
 
@@ -54,6 +56,11 @@ final routerProvider = Provider<GoRouter>((ref) {
         name: 'onboarding',
         path: '/onboarding',
         builder: (context, state) => const OnboardingScreen(),
+      ),
+      GoRoute(
+        name: 'login',
+        path: '/login',
+        builder: (context, state) => const LoginScreen(),
       ),
       GoRoute(
         name: 'call',
